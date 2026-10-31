@@ -51,6 +51,7 @@ export const areaStyleSchema = z.object({
   opacity: z.number().min(0).max(1),
   pattern: z.enum(['solid', 'hatch-left', 'hatch-right', 'dots']),
 });
+export type AreaStyle = z.infer<typeof areaStyleSchema>;
 
 export const pathStyleSchema = z.object({
   type: z.literal('path'),
@@ -60,6 +61,7 @@ export const pathStyleSchema = z.object({
   dash: z.array(z.number().nonnegative()),
   lineCap: z.enum(['butt', 'round', 'square']),
 });
+export type PathStyle = z.infer<typeof pathStyleSchema>;
 
 export const markerStyleSchema = z.object({
   type: z.literal('marker'),
@@ -67,6 +69,7 @@ export const markerStyleSchema = z.object({
   strokeColor: colorSchema,
   strokeWidth: z.number().nonnegative(),
 });
+export type MarkerStyle = z.infer<typeof markerStyleSchema>;
 
 export const textStyleSchema = z.object({
   type: z.literal('text'),
@@ -74,6 +77,7 @@ export const textStyleSchema = z.object({
   fontSize: z.number().positive(),
   fontFamily: z.string().trim().min(1),
 });
+export type TextStyle = z.infer<typeof textStyleSchema>;
 
 export const terrainStyleSchema = z.discriminatedUnion('type', [
   areaStyleSchema,

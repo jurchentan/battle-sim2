@@ -1,8 +1,10 @@
 # Battle Map Editor — Project Specification
 
-Status: M0 complete (foundation). Source of truth: `Readme.md` (engineering
+Status: M1 complete (canvas foundation). Source of truth: `Readme.md` (engineering
 specification) plus `Info.md` (product vision). If documents disagree, `Readme.md`
-wins for implementation details.
+wins for implementation details. The terrain workspace now supports camera
+navigation, selection, polygon/polyline/text drawing, and undo/redo; expanded
+terrain styling and layer controls remain in M2.
 
 ## 1. Product summary
 

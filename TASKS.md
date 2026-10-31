@@ -24,14 +24,14 @@ Acceptance gate: `npm run typecheck`, `npm run lint`, `npm run test`, and
 `npm run build` succeed; invalid hierarchy and broken phase references are
 rejected.
 
-## M1 — Canvas foundation
+## M1 — Canvas foundation (complete)
 
-- [ ] Center document canvas and paper background
-- [ ] World/screen transforms, cursor-centred zoom, pan, fit-to-map
-- [ ] Selection, drag, resize, rotate basics
-- [ ] Left tool rail, right inspector shell, layer list
-- [ ] Undo/redo with one gesture per history entry
-- [ ] Basic polygon, polyline, and text objects
+- [x] Center document canvas and paper background
+- [x] World/screen transforms, cursor-centred zoom, pan, fit-to-map
+- [x] Selection, drag, resize, rotate basics
+- [x] Left tool rail, right inspector shell, layer list
+- [x] Undo/redo with one gesture per history entry
+- [x] Basic polygon, polyline, and text objects
 
 Gate: draw/select/move/resize/rotate; undo/redo; zoom/pan; exact world coordinates
 restored after navigation.

@@ -1,21 +1,22 @@
 # Architecture
 
-Status: M0 foundation (types, validation, seed data, workspace shell). Canvas,
-persistence, and editor interactions are intentionally not implemented yet.
+Status: M1 complete (canvas foundation). Terrain editing supports the core
+camera, selection, drawing, and undo flows; persistence and expanded terrain
+styling begin in later milestones.
 
 ## 1. Stack and tooling
 
-| Concern     | Choice                                          |
-| ----------- | ----------------------------------------------- |
-| Build/dev   | Vite 8, React 19, TypeScript 7 (strict)         |
-| Canvas      | Konva / react-konva (installed, used from M1)   |
-| State       | Zustand (UI store now; document stores from M1) |
-| Validation  | Zod 4                                           |
-| Persistence | Dexie / IndexedDB (from M3)                     |
-| Styling     | Tailwind CSS 4 via `@tailwindcss/vite`          |
-| Unit tests  | Vitest                                          |
-| E2E tests   | Playwright (smoke test scaffolded)              |
-| Lint/format | Oxlint, Prettier                                |
+| Concern     | Choice                                       |
+| ----------- | -------------------------------------------- |
+| Build/dev   | Vite 8, React 19, TypeScript 7 (strict)      |
+| Canvas      | Konva / react-konva                          |
+| State       | Zustand (workspace, camera, editor, terrain) |
+| Validation  | Zod 4                                        |
+| Persistence | Dexie / IndexedDB (from M3)                  |
+| Styling     | Tailwind CSS 4 via `@tailwindcss/vite`       |
+| Unit tests  | Vitest                                       |
+| E2E tests   | Playwright                                   |
+| Lint/format | Oxlint, Prettier                             |
 
 Scripts: `dev`, `build`, `typecheck`, `lint`, `format`, `test`, `test:watch`,
 `test:e2e`, `preview`.
@@ -27,18 +28,18 @@ mode is enabled explicitly in `tsconfig.app.json`.
 
 ```text
 src/
-  app/                 root shell, workspace tabs, workspace summary panels
+  app/                 root shell, workspace tabs, workspace panels
+  canvas/              camera math/store, geometry, layer ordering, Konva viewport
   components/          reusable presentational components
+  features/terrain/    toolbar, tool rail, layers, inspector, shortcuts, factories
   models/              TypeScript types, Zod schemas, seed documents, id helper
-  state/               Zustand stores (currently UI workspace state only)
+  state/               Zustand stores (workspace, camera, editor, terrain history)
   styles/              global Tailwind entry and theme tokens
 ```
 
 Planned additions follow the original spec:
 
 ```text
-  canvas/              camera, layers, transforms, hit testing (M1)
-  features/terrain/    terrain tools and renderers (M1-M3)
   features/armies/     roster editor and hierarchy (M4)
   features/units/      formation rendering and placement (M5)
   features/phases/     timeline, phase snapshots, annotations (M6)
@@ -97,33 +98,39 @@ cloned in `src/models/seed.ts`.
 - Renaming a unit definition changes its global base name; phase naming is
   explicit via label overrides.
 
-## 4. State and undo strategy (planned)
+## 4. State and undo strategy
 
-- Document state and transient UI state are separate stores.
+- Document and transient UI state are separate Zustand stores
+  (`terrainStore`, `editorStore`, `cameraStore`).
 - Documents are normalized by ID; selection stores IDs, never object references.
-- Every document edit goes through explicit named actions (for example
-  `addTerrainFeature`, `duplicatePhase`, `updateUnitPhaseState`).
-- Undo/redo is a command/history boundary around committed document edits.
-- Pointer gestures buffer a preview, then commit once on pointer-up: one gesture
-  equals one history entry.
-- Camera navigation and active-phase switching are not undoable document edits.
+- Every document edit goes through explicit named actions (`addFeature`,
+  `updateFeature`, later phase/roster actions).
+- Undo/redo is a snapshot history around committed document edits, capped at 100
+  entries in `terrainStore`.
+- Pointer gestures buffer a preview, then commit once on pointer-up: dragging,
+  transforming, and drawing each produce one history entry.
+- Name edits commit once on blur; camera navigation, tool choice, and selection
+  are not undoable document edits.
 - History is scoped to the open document and reset deliberately on open/create.
-- Autosave is debounced and only runs after successful committed edits.
+- Autosave is debounced and only runs after successful committed edits (M3).
 
-## 5. Canvas and interaction (planned)
+## 5. Canvas and interaction
 
-- Single document coordinate space (default 2000 × 1400).
+- Single document coordinate space (default 2000 × 1400), centered and fitted in
+  the viewport with an aged-paper background.
 - Camera transform `{ scale, offsetX, offsetY }` with tested
-  `screenToWorld`/`worldToScreen`, cursor-centred zoom, pan, and fit.
+  `screenToWorld`/`worldToScreen`, cursor-centred wheel zoom, pan (pan tool,
+  middle-drag, or Space-drag), and fit-to-map.
 - Document geometry is stored in world coordinates; camera changes never rewrite
   geometry.
-- Fixed render layer order: paper, area terrain, detail/contours, rivers/roads,
-  structures/labels, tactical overlays, formations/labels, arrows/annotations,
-  editor UI.
-- Tools implement a common pointer state machine (`idle`, `drawing`, `dragging`,
-  etc.) and use IDs for selection.
-- Hit testing respects layer visibility/lock state and the active workspace.
+- Current render order: paper, terrain features, draft/selection overlay. The
+  detailed terrain sub-layer order is expanded in M2.
+- Tool state and draft points live in `editorStore`; committed objects live in
+  `terrainStore`. Selection stores feature IDs.
+- Hit testing respects layer lock state; visibility/lock controls arrive in M2.
 - Multi-point tools finish with Enter or double-click; Escape cancels.
+- Konva `Transformer` provides resize/rotate handles; transforms are flattened
+  back to world geometry on commit.
 - Selection handles and guides live outside exported layers.
 
 ## 6. Persistence and file formats (planned)
@@ -155,13 +162,15 @@ editor UI and selection handles.
 - Vitest: schema acceptance/rejection, hierarchy cycles, phase isolation, deep
   copy behavior, camera math, history atomicity, round-trip equivalence, bad
   imports.
-- Playwright: workspace switching now; editor draw/move/phase-switch flows from
-  M1/M6 onward.
+- Playwright: workspace switching and terrain draw/undo/redo/zoom, drag, resize,
+  and rotate flows; phase-switch flows from M6 onward.
 - Stress smoke tests with hundreds of terrain objects and 100–300 formations;
   optimize only after measurement.
 
-M0 currently covers model validation and seed/phase isolation with Vitest and a
-Playwright workspace smoke test.
+M0 covers model validation and seed/phase isolation. M1 adds Vitest coverage for
+camera math, layer ordering/interactivity, terrain history, and feature factories,
+plus Playwright flows for drawing, undo/redo, zoom, dragging, resizing, and
+rotating.
 
 ## 8. Conventions
 
