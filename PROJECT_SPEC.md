@@ -102,6 +102,14 @@ silently mutate existing scenarios.
 - Animated playback (possible later).
 - Real-world order-of-battle requirements.
 
+### Possible later work (unscheduled)
+
+- A temporary per-phase battle-line tool for directions, attacks, retreats, and
+  other tactical marks.
+- Phase-to-phase animation that plays the battle as a continuous sequence.
+- Branching timelines for exploring alternate versions of the same battle.
+- AI-assisted battlefield creation from sketches, drawings, or reference images.
+
 ## 6. Definition of done
 
 A user can:

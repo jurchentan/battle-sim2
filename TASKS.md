@@ -108,3 +108,21 @@ matches the phase without editor UI; E2E tests pass.
 
 Gate: polished historical-style output resembling reference maps while remaining
 fully editable.
+
+## Future ideas (unscheduled / far-future improvements)
+
+These are exploratory directions, not part of the v1 milestone sequence. Do not
+implement them until they are explicitly scheduled and given acceptance gates.
+
+- **Temporary battle-line tool** — draw arrows, attack/retreat lines, and other
+  direction marks that exist only in the active phase. Switching phases hides
+  them; the marks remain saved with that phase. Builds on the M6 phase
+  annotations with a dedicated temporary drawing tool.
+- **Phase-transition animation** — interpolate unit positions and tactical
+  annotations between phases to play a complete battle animation. Far-future
+  stretch goal.
+- **Battle timelines and variations** — branch a scenario into alternate
+  timelines so different what-if versions of the same battle can be explored
+  side by side.
+- **AI-assisted battlefield creation** — turn a sketch, drawing, or reference
+  image into an editable terrain map and initial deployment.

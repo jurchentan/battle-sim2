@@ -80,7 +80,7 @@ The first version should prioritize a complete creation workflow: drawing and sa
 
 It does not need Google Maps, imported geographic data, automatic combat simulation, AI-generated battle outcomes, multiplayer editing, or 3D terrain.
 
-Animated battle playback and additional map styles may be considered in later versions.
+Animated battle playback, branching timelines, temporary phase-only battle lines, AI-assisted terrain creation, and additional map styles may be considered in later versions.
 
 ### What Success Looks Like
 
