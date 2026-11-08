@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import { useArmyPersistence } from '../features/army/useArmyPersistence';
 import { useTerrainPersistence } from '../features/library/useTerrainPersistence';
 import { useAppStore, type Workspace } from '../state/appStore';
 import { ArmyWorkspace } from './workspaces/ArmyWorkspace';
@@ -14,6 +15,7 @@ const WORKSPACE_PANELS: Record<Workspace, ComponentType> = {
 
 export function App() {
   useTerrainPersistence();
+  useArmyPersistence();
   const workspace = useAppStore((state) => state.workspace);
   const ActiveWorkspace = WORKSPACE_PANELS[workspace];
 
@@ -34,7 +36,7 @@ export function App() {
       </header>
 
       <main className="min-h-0 flex-1">
-        {workspace === 'terrain' ? (
+        {workspace === 'terrain' || workspace === 'army' ? (
           <ActiveWorkspace />
         ) : (
           <div className="h-full overflow-auto">
@@ -47,7 +49,7 @@ export function App() {
 
       <footer className="shrink-0 border-t border-[#d8cdb5] bg-[#f1e9d8]/80">
         <div className="flex w-full flex-wrap items-center justify-between gap-2 px-6 py-2 text-xs text-[#7c715c]">
-          <span>Milestone M3 · Terrain library and autosave</span>
+          <span>Milestone M4 · Army roster editor and library</span>
           <span>Desktop workspace · No accounts or network required</span>
         </div>
       </footer>

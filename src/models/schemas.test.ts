@@ -70,10 +70,10 @@ describe('seed documents', () => {
   it('keeps scenario snapshots independent from source documents', () => {
     const documents = createSeedDocuments();
     documents.terrain.features[0].name = 'Changed terrain';
-    documents.roster.units[0].name = 'Changed roster';
+    documents.roster.units[0].customName = 'Changed roster';
 
     expect(documents.scenario.terrainSnapshot.features[0].name).toBe('North Wood');
-    expect(documents.scenario.rosterSnapshot.units[0].name).toBe('Army of the North');
+    expect(documents.scenario.rosterSnapshot.units[0].customName).toBe('Army of the North');
   });
 
   it('keeps seeded phase state deeply isolated', () => {
@@ -175,7 +175,7 @@ describe('terrain validation', () => {
 describe('army roster validation', () => {
   it('rejects duplicate unit ids', () => {
     const roster = createSeedRoster();
-    roster.units.push({ ...getUnit(roster, 'unit-north-brigade-1'), name: 'Duplicate unit' });
+    roster.units.push({ ...getUnit(roster, 'unit-north-brigade-1'), customName: 'Duplicate unit' });
 
     expectFailure(armyRosterSchema.safeParse(roster), 'Duplicate unit id');
   });
@@ -208,14 +208,10 @@ describe('army roster validation', () => {
     expectFailure(armyRosterSchema.safeParse(roster), 'same faction');
   });
 
-  it('rejects dangling faction and commander references', () => {
+  it('rejects dangling faction references', () => {
     const factionRoster = createSeedRoster();
     getUnit(factionRoster, 'unit-north-brigade-1').factionId = 'faction-ghost';
     expectFailure(armyRosterSchema.safeParse(factionRoster), 'unknown faction');
-
-    const commanderRoster = createSeedRoster();
-    getUnit(commanderRoster, 'unit-north-brigade-1').commanderId = 'commander-ghost';
-    expectFailure(armyRosterSchema.safeParse(commanderRoster), 'unknown commander');
   });
 
   it('rejects negative strengths', () => {
@@ -225,11 +221,26 @@ describe('army roster validation', () => {
     expect(armyRosterSchema.safeParse(roster).success).toBe(false);
   });
 
-  it('rejects duplicate commander ids', () => {
-    const roster = createSeedRoster();
-    roster.commanders.push({ ...roster.commanders[0], name: 'Duplicate commander' });
+  it('normalizes legacy unit names and commander references', () => {
+    const legacy = JSON.parse(JSON.stringify(createSeedRoster())) as Record<string, unknown>;
+    legacy.commanders = [{ id: 'commander-legacy', name: 'Legacy Commander', rank: 'General' }];
+    delete (legacy.factions as Record<string, unknown>[])[0]!.namingMode;
 
-    expectFailure(armyRosterSchema.safeParse(roster), 'Duplicate commander id');
+    const units = legacy.units as Record<string, unknown>[];
+    const first = units[0]!;
+    first.name = 'Legacy Army';
+    delete first.customName;
+    first.commanderId = 'commander-legacy';
+    delete first.commander;
+
+    const result = armyRosterSchema.safeParse(legacy);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    expect(result.data.units[0]?.customName).toBe('Legacy Army');
+    expect(result.data.units[0]?.commander).toBe('Legacy Commander');
+    expect(result.data.factions[0]?.namingMode).toBe('numeric');
+    expect('commanders' in result.data).toBe(false);
   });
 });
 
@@ -254,17 +265,6 @@ describe('battle scenario validation', () => {
     scenario.activePhaseId = 'phase-ghost';
 
     expectFailure(battleScenarioSchema.safeParse(scenario), 'Active phase');
-  });
-
-  it('rejects unknown phase commander overrides', () => {
-    const scenario = createSeedBattleScenario();
-    const state = getPhase(scenario, 'phase-initial').unitStates['unit-north-brigade-1'];
-    if (!state) {
-      throw new Error('Missing seeded unit state');
-    }
-    state.commanderOverrideId = 'commander-ghost';
-
-    expectFailure(battleScenarioSchema.safeParse(scenario), 'unknown commander');
   });
 
   it('rejects annotations linked to unknown units', () => {

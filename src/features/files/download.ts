@@ -1,4 +1,5 @@
-import type { TerrainMap } from '../../models';
+import type { ArmyRoster, TerrainMap } from '../../models';
+import { armyFileName, serializeArmyFile } from '../army/armyFile';
 import { serializeTerrainFile, terrainFileName } from './terrainFile';
 
 export function downloadTextFile(filename: string, contents: string): void {
@@ -16,4 +17,8 @@ export function downloadTextFile(filename: string, contents: string): void {
 
 export function downloadTerrainFile(document: TerrainMap): void {
   downloadTextFile(terrainFileName(document), serializeTerrainFile(document));
+}
+
+export function downloadArmyFile(document: ArmyRoster): void {
+  downloadTextFile(armyFileName(document), serializeArmyFile(document));
 }

@@ -68,13 +68,17 @@ equivalent semantic data.
 - [ ] Group and filter the terrain library by campaign / war folder
 - [ ] Link new terrain maps to a scenario from the creation dialog
 
-## M4 — Army roster editor
+## M4 — Army roster editor (complete)
 
-- [ ] Faction and commander management
-- [ ] Unit creation, editing, and safe reparenting
-- [ ] Default army/corps/division/brigade hierarchy plus custom echelons
-- [ ] Brigade strength, type, notes, symbol style
-- [ ] Roster library and import/export
+- [x] Faction management with configurable colors and naming mode
+- [x] Unit creation, editing, and safe reparenting
+- [x] Default army/corps/division/brigade hierarchy plus custom echelons
+- [x] Per-echelon default strengths, type, notes, symbol style
+- [x] Generated numbered or commander-style unit names with custom-name override
+- [x] Free-text commander per unit
+- [x] Roster library and import/export
+- [x] Configurable smallest echelon with derived formation strength roll-up
+- [x] Inline add-subordinate control on every non-leaf formation
 
 Gate: create two armies with corps/division/three brigades; reject cycles; persist
 and reopen.
@@ -95,7 +99,7 @@ sources do not mutate the scenario.
 - [ ] Add, duplicate, rename, reorder, delete phases; timeline
 - [ ] Deep-isolated per-phase unit states
 - [ ] Phase annotations: movement/attack arrows, defense lines, highlights, text
-- [ ] Inspector edits for strength, status, commander override, visibility
+- [ ] Inspector edits for strength, status, visibility, and label overrides
 
 Gate: duplicate Phase 1 into Phases 2/3, reposition units, change strengths, draw
 arrows; returning to Phase 1 restores it exactly.

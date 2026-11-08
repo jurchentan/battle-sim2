@@ -1,12 +1,15 @@
 # Battle Map Editor — Project Specification
 
-Status: M3 complete (terrain library). Source of truth: `Readme.md`
+Status: M4 complete (army roster editor). Source of truth: `Readme.md`
 (engineering specification) plus `Info.md` (product vision). If documents
 disagree, `Readme.md` wins for implementation details. The terrain workspace
 supports area and path tools, symbols and labels, style editing, layer
 visibility/locking/z-order, object stacking, delete/duplicate, simplified
 freehand drawing, and a local IndexedDB library with autosave plus versioned
-JSON import/export.
+JSON import/export. The army workspace manages factions and hierarchical units
+with safe reparenting, generated or custom unit names, free-text commanders,
+per-echelon default strengths, configurable smallest-unit strength roll-up, and
+its own IndexedDB library with autosave and versioned JSON import/export.
 
 ## 1. Product summary
 
@@ -36,8 +39,8 @@ Three reusable document types, stored independently:
 
 1. **Terrain map** — geography only: forests, fields, water, rivers, roads,
    contours, structures, and labels. No military units or timeline.
-2. **Army roster** — factions, commanders, and units with echelons, types,
-   strengths, and parent relationships. Legal in isolation from terrain.
+2. **Army roster** — factions and units with echelons, types, strengths, parent
+   relationships, and free-text commanders. Legal in isolation from terrain.
 3. **Battle scenario** — a self-contained snapshot of one terrain map and one
    army roster, plus deployment states, ordered phases, and annotations.
 
@@ -74,13 +77,22 @@ silently mutate existing scenarios.
 
 ### Army rosters
 
-- Factions with configurable colors.
-- Commanders and named units.
+- Factions with configurable colors and a numbering style: numeric
+  (`1st Brigade`) or commander-style (`Johnsons Brigade`).
+- Free-text commanders and custom unit names. A non-empty custom name overrides
+  the generated name.
 - Configurable hierarchy with default `army > corps > division > brigade`;
   additional echelons (`regiment`, `other`) are allowed.
-- Brigade-level initial strength, unit type, notes, and default symbol style.
+- Configurable smallest echelon (for example brigade or regiment). Units at or
+  below it carry their own strength; higher formations display the summed
+  strength of their subordinates.
+- Per-echelon default strengths for infantry, cavalry, and artillery, applied
+  when a new unit is at or below the smallest echelon.
+- Unit type, notes, and default symbol style.
+- Inline subordinate creation from any formation above the smallest echelon.
 - Cycle and reference validation.
-- Roster library with import/export.
+- Roster library with import/export, including normalization of earlier rosters
+  that stored a unit name and a separate commander record.
 
 ### Scenario editing
 
@@ -88,7 +100,7 @@ silently mutate existing scenarios.
 - Deploy brigade formations: move, rotate, resize frontage, label, hide.
 - Multiple phases: add, duplicate, rename, reorder, delete, activate.
 - Per-phase positions, orientation, frontage, effective strength, status,
-  visibility, label overrides, and commander overrides.
+  visibility, and label overrides.
 - Per-phase movement arrows, attack arrows, defense lines, highlights, and text.
 - Layer and phase visibility toggles.
 
@@ -130,7 +142,7 @@ A user can:
 4. Save and reopen reusable army rosters.
 5. Create a battle scenario from a saved terrain map and roster.
 6. Deploy, drag, rotate, resize, and label unit symbols.
-7. Duplicate a phase and alter positions, strengths, statuses, commanders, and
+7. Duplicate a phase and alter positions, strengths, statuses, labels, and
    phase-specific arrows without changing earlier phases.
 8. Toggle layers and phases.
 9. Save, reopen, export, and import an entire scenario.

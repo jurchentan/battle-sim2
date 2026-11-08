@@ -1,77 +1,104 @@
-import { InfoCard } from '../../components/InfoCard';
-import { Stat, StatGrid } from '../../components/Stat';
-import { WorkspacePanel } from '../../components/WorkspacePanel';
-import { seedDocuments, type UnitEchelon } from '../../models';
+import { useState } from 'react';
+import { useRosterLibraryStore } from '../../state/rosterLibraryStore';
+import { useRosterStore } from '../../state/rosterStore';
+import { OrderOfBattlePanel } from '../../features/army/OrderOfBattlePanel';
+import { RosterToolbar } from '../../features/army/RosterToolbar';
+import { FactionManagerPanel, RosterSettingsPanel } from '../../features/army/RosterSidebars';
+import { UnitEditorPanel } from '../../features/army/UnitEditorPanel';
+import { sectionHeadingClass } from '../../features/army/ui';
 
-const ECHELON_ORDER: UnitEchelon[] = ['army', 'corps', 'division', 'brigade', 'regiment', 'other'];
+interface CreateSeed {
+  factionId: string;
+  parentUnitId: string | null;
+}
 
 export function ArmyWorkspace() {
-  const roster = seedDocuments.roster;
+  const roster = useRosterStore((state) => state.document);
+  const ready = useRosterLibraryStore((state) => state.ready);
 
-  const unitsByEchelon = new Map<UnitEchelon, number>();
-  for (const unit of roster.units) {
-    unitsByEchelon.set(unit.echelon, (unitsByEchelon.get(unit.echelon) ?? 0) + 1);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [createSeed, setCreateSeed] = useState<CreateSeed | null>(null);
+
+  const activeSelectedUnitId =
+    selectedUnitId && roster.units.some((unit) => unit.id === selectedUnitId)
+      ? selectedUnitId
+      : null;
+
+  if (!ready) {
+    return (
+      <section
+        role="tabpanel"
+        id="workspace-panel-army"
+        aria-labelledby="workspace-tab-army"
+        className="flex h-full min-h-0 flex-col"
+      >
+        <div className="border-b border-[#d8cdb5] bg-[#f6efe0] px-4 py-2">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-[#2f2b23]">
+            Army Roster Editor
+          </h2>
+        </div>
+        <div className="flex flex-1 items-center justify-center text-sm text-[#7c715c]">
+          Opening the local army roster library…
+        </div>
+      </section>
+    );
   }
 
+  const handleSelectUnit = (unitId: string | null): void => {
+    setCreateSeed(null);
+    setSelectedUnitId(unitId);
+  };
+
   return (
-    <WorkspacePanel
-      workspace="army"
-      title="Army Roster Editor"
-      milestone="M4"
-      scope="Build reusable order-of-battle rosters: factions, commanders, and a configurable army hierarchy. Brigades are the default deployable unit, but any echelon can be represented."
+    <section
+      role="tabpanel"
+      id="workspace-panel-army"
+      aria-labelledby="workspace-tab-army"
+      className="flex h-full min-h-0 flex-col"
     >
-      <InfoCard
-        eyebrow="Seeded demo roster"
-        title={roster.name}
-        subtitle="One roster can contain multiple opposing factions."
-      >
-        <StatGrid>
-          <Stat label="Factions" value={roster.factions.length} />
-          <Stat label="Commanders" value={roster.commanders.length} />
-          <Stat label="Units" value={roster.units.length} />
-          <Stat label="Brigades" value={unitsByEchelon.get('brigade') ?? 0} />
-        </StatGrid>
+      <RosterToolbar roster={roster} />
 
-        <div className="mt-6 grid gap-6 md:grid-cols-2">
-          <div>
-            <h4 className="text-xs font-semibold tracking-[0.14em] text-[#857a64] uppercase">
-              Factions
-            </h4>
-            <ul className="mt-2 space-y-2">
-              {roster.factions.map((faction) => (
-                <li
-                  key={faction.id}
-                  className="flex items-center gap-3 rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-3 py-2 text-sm"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="h-3 w-3 rounded-full ring-1 ring-black/10"
-                    style={{ backgroundColor: faction.color }}
-                  />
-                  <span className="font-medium text-[#3b352a]">{faction.name}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+      <div className="flex min-h-0 flex-1">
+        <OrderOfBattlePanel
+          roster={roster}
+          selectedUnitId={activeSelectedUnitId}
+          onSelectUnit={handleSelectUnit}
+          onCreateUnit={(seed) => {
+            setCreateSeed(seed);
+          }}
+        />
 
-          <div>
-            <h4 className="text-xs font-semibold tracking-[0.14em] text-[#857a64] uppercase">
-              Units by echelon
-            </h4>
-            <ul className="mt-2 space-y-1.5">
-              {ECHELON_ORDER.filter((echelon) => unitsByEchelon.has(echelon)).map((echelon) => (
-                <li
-                  key={echelon}
-                  className="flex items-center justify-between border-b border-dashed border-[#ded3bd] pb-1.5 text-sm text-[#4a4438]"
-                >
-                  <span className="capitalize">{echelon}</span>
-                  <span className="font-medium">{unitsByEchelon.get(echelon)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+        <div className="min-w-0 flex-1 overflow-y-auto bg-[#f3ecdc]/50">
+          <UnitEditorPanel
+            roster={roster}
+            selectedUnitId={activeSelectedUnitId}
+            createSeed={createSeed}
+            onSelectUnit={handleSelectUnit}
+            onStartCreate={(seed) => setCreateSeed(seed)}
+            onCancelCreate={() => setCreateSeed(null)}
+          />
         </div>
-      </InfoCard>
-    </WorkspacePanel>
+
+        <aside
+          aria-label="Roster records"
+          className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto border-l border-[#d8cdb5] bg-[#fbf7ed] p-3"
+        >
+          <RosterSettingsPanel />
+          <FactionManagerPanel />
+
+          <section
+            aria-label="Roster guidance"
+            className="rounded-lg border border-[#e2d8c3] bg-[#f8f2e5] px-3 py-2.5"
+          >
+            <h3 className={sectionHeadingClass}>Safe hierarchy</h3>
+            <p className="mt-1 text-[0.68rem] leading-4 text-[#7c715c]">
+              Parent options exclude the selected unit, its descendants, and other factions. The
+              roster store validates every edit before it is committed, so cycles and dangling
+              references are rejected.
+            </p>
+          </section>
+        </aside>
+      </div>
+    </section>
   );
 }

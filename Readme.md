@@ -28,7 +28,7 @@ Non-negotiable scope:
 3. Information architecture and interface
    Primary workspaces:
 1. Terrain Editor: draw and manage reusable terrain. Military units and timeline are not editable here.
-1. Army Roster Editor: create factions, commanders, units, hierarchy, and brigade default characteristics.
+1. Army Roster Editor: create factions, units, hierarchy, naming, and unit default characteristics.
 1. Scenario Editor: combine a snapshot of a terrain map and army roster(s), deploy units, create phases and annotations, and export maps.
    Desktop layout:
 
@@ -36,7 +36,7 @@ Non-negotiable scope:
 - Left toolbar: selection, pan, terrain polygon, forest, field, river, road, contour, structure, text, unit place, formation, arrows, defense line; tools shown based on workspace.
 - Left secondary panel: map layers in terrain mode; hierarchical Order of Battle in scenario/army mode.
 - Center: infinite-feeling pan/zoom viewport over a finite map document with visible page bounds.
-- Right properties inspector: contextual fields for selected terrain object, brigade, commander, annotation, or phase.
+- Right properties inspector: contextual fields for selected terrain object, unit, annotation, or phase.
 - Bottom (scenario mode): ordered phase timeline with add, duplicate, rename, delete, and reorder controls.
 - Clear active mode indication so terrain cannot accidentally be edited while dragging a unit.
   Useful keyboard shortcuts: V select, H pan (or drag empty canvas), Delete delete selected, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo, Ctrl/Cmd+S save current document, Escape cancel tool operation. Shortcuts should not fire while typing into inputs.
@@ -58,19 +58,18 @@ Non-negotiable scope:
    }
    kind in v1: forest | field | river | road | contour | lake | swamp | building | bridge | fortification | label | customPath. Geometries must be discriminated unions, e.g. point, polyline, polygon, or text anchor, with typed styles. Do not store Konva objects in documents. Positions are document coordinates, never zoom-adjusted screen pixels. Preserve exact points when saving/loading.
    4.2 Armies and order of battle
-   Faction { id, name, color, labelColor?, notes? }
-   Commander { id, name, rank?, notes? }
+   Faction { id, name, color, labelColor?, namingMode: 'numeric'|'commander', notes? }
    UnitDefinition {
-   id, factionId, name,
+   id, factionId, customName?,
    echelon: 'army'|'corps'|'division'|'brigade'|'regiment'|'other',
    unitType: 'infantry'|'cavalry'|'artillery'|'other',
    parentUnitId: string|null,
-   commanderId: string|null,
+   commander?: string,
    initialStrength: number|null,
    defaultSymbolStyle, notes?
    }
-   ArmyRoster { schemaVersion, id, name, factions, commanders, units, createdAt, updatedAt }
-   No assumptions about real-world armies or command structures; allow custom names and other echelons. Parent and child must belong to same faction by default. Block cycles in parentUnitId (including indirect cycles). Validate duplicate IDs, dangling parent and commander references, and negative strength. Brigade is default deployable echelon, but the renderer should not forbid representing divisions or other units.
+   ArmyRoster { schemaVersion, id, name, factions, units, createdAt, updatedAt }
+   No assumptions about real-world armies or command structures; allow custom names and other echelons. Unit display names are generated per faction and echelon, either numerically (`1st Brigade`) or from the free-text commander (`Johnsons Brigade`); a non-empty `customName` overrides the generated name. Parent and child must belong to same faction by default. Block cycles in parentUnitId (including indirect cycles). Validate duplicate IDs, dangling parent references, and negative strength. Brigade is default deployable echelon, but the renderer should not forbid representing divisions or other units.
    4.3 Scenario and timeline
    BattleScenario {
    schemaVersion, id, name, description?,
@@ -90,7 +89,6 @@ Non-negotiable scope:
    shapePoints?: Point[],
    visible, effectiveStrength: number|null,
    status: 'reserve'|'moving'|'engaged'|'holding'|'retreating'|'routed'|'other',
-   commanderOverrideId?: string|null,
    labelOverride?: string,
    notes?: string
    }
@@ -202,8 +200,8 @@ Every import:
 - JSON import/export, schema validation, autosave state.
   Pass: close/reload browser, reopen map and recover every shape/style; exported map reimports with equivalent semantic document data.
   M4 — Army roster editor
-- Create faction(s), commanders, units, and editable hierarchy (army/corps/division/brigade default).
-- Set brigade strength, commander, notes, unit type and style; reparent safely.
+- Create faction(s), units, and editable hierarchy (army/corps/division/brigade default).
+- Set per-echelon default strengths, type, commander text, custom or generated names, notes, and style; reparent safely.
 - Army roster local library and import/export.
   Pass: create army > corps > division > 3 brigades for two sides; reject cyclic chain of command; persist and reopen.
   M5 — Scenario editor and deployment
@@ -214,7 +212,7 @@ Every import:
   M6 — Battle phases
 - Add/duplicate/delete/reorder/rename phase; timeline toggle.
 - Fully isolated per-phase unit states and phase-specific arrows/annotations.
-- Inspector edits strength, status, commander override and visibility in active phase.
+- Inspector edits strength, status, label override, and visibility in active phase.
   Pass: duplicate Phase 1 into Phases 2/3, reposition units, modify strength, draw arrows; switching back restores original Phase 1 perfectly.
   M7 — Complete persistence, exports, UX hardening
 - Save/open/import/export complete battle scenarios as self-contained versioned files.

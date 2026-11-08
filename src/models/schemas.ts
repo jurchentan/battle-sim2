@@ -246,22 +246,18 @@ export const terrainMapSchema = z
   });
 export type TerrainMap = z.infer<typeof terrainMapSchema>;
 
+export const factionNamingModeSchema = z.enum(['numeric', 'commander']);
+export type FactionNamingMode = z.infer<typeof factionNamingModeSchema>;
+
 export const factionSchema = z.object({
   id: idSchema,
   name: nameSchema,
   color: colorSchema,
   labelColor: colorSchema.optional(),
+  namingMode: factionNamingModeSchema.default('numeric'),
   notes: z.string().optional(),
 });
 export type Faction = z.infer<typeof factionSchema>;
-
-export const commanderSchema = z.object({
-  id: idSchema,
-  name: nameSchema,
-  rank: z.string().optional(),
-  notes: z.string().optional(),
-});
-export type Commander = z.infer<typeof commanderSchema>;
 
 export const unitEchelonSchema = z.enum([
   'army',
@@ -287,16 +283,85 @@ export type SymbolStyle = z.infer<typeof symbolStyleSchema>;
 export const unitDefinitionSchema = z.object({
   id: idSchema,
   factionId: idSchema,
-  name: nameSchema,
+  customName: z.string().optional(),
   echelon: unitEchelonSchema,
   unitType: unitTypeSchema,
   parentUnitId: idSchema.nullable(),
-  commanderId: idSchema.nullable(),
+  commander: z.string().optional(),
   initialStrength: z.number().nonnegative().nullable(),
   defaultSymbolStyle: symbolStyleSchema,
   notes: z.string().optional(),
 });
 export type UnitDefinition = z.infer<typeof unitDefinitionSchema>;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Accepts army rosters written before dynamic naming and free-text commanders.
+ * Legacy units stored a required `name` and a `commanderId` reference into a
+ * separate commanders array; those values become `customName` and `commander`.
+ */
+function normalizeArmyRosterInput(value: unknown): unknown {
+  const roster = asRecord(value);
+  if (!roster) return value;
+
+  const commanderNames = new Map<string, string>();
+  if (Array.isArray(roster.commanders)) {
+    for (const commander of roster.commanders) {
+      const record = asRecord(commander);
+      if (!record) continue;
+      const id = typeof record.id === 'string' ? record.id : null;
+      const name = typeof record.name === 'string' ? record.name.trim() : '';
+      if (id && name) commanderNames.set(id, name);
+    }
+  }
+
+  const factions = Array.isArray(roster.factions)
+    ? roster.factions.map((faction) => {
+        const record = asRecord(faction);
+        if (!record) return faction;
+        if (record.namingMode === 'numeric' || record.namingMode === 'commander') {
+          return record;
+        }
+        return { ...record, namingMode: 'numeric' };
+      })
+    : roster.factions;
+
+  const units = Array.isArray(roster.units)
+    ? roster.units.map((unit) => {
+        const record = asRecord(unit);
+        if (!record) return unit;
+
+        const customName =
+          typeof record.customName === 'string' && record.customName.trim()
+            ? record.customName
+            : typeof record.name === 'string' && record.name.trim()
+              ? record.name
+              : undefined;
+
+        const commander =
+          typeof record.commander === 'string' && record.commander.trim()
+            ? record.commander
+            : typeof record.commanderId === 'string'
+              ? commanderNames.get(record.commanderId)
+              : undefined;
+
+        const { name: _name, commanderId: _commanderId, ...rest } = record;
+        return {
+          ...rest,
+          ...(customName === undefined ? {} : { customName }),
+          ...(commander === undefined ? {} : { commander }),
+        };
+      })
+    : roster.units;
+
+  const { commanders: _commanders, ...rest } = roster;
+  return { ...rest, factions, units };
+}
 
 function findUnitHierarchyCycle(units: readonly UnitDefinition[]): string[] | null {
   const byId = new Map(units.map((unit) => [unit.id, unit] as const));
@@ -330,24 +395,22 @@ function findUnitHierarchyCycle(units: readonly UnitDefinition[]): string[] | nu
   return null;
 }
 
-export const armyRosterSchema = z
+const armyRosterObjectSchema = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION),
     id: idSchema,
     name: nameSchema,
+    smallestUnitEchelon: unitEchelonSchema.default('brigade'),
     factions: z.array(factionSchema),
-    commanders: z.array(commanderSchema),
     units: z.array(unitDefinitionSchema),
     createdAt: isoDateSchema,
     updatedAt: isoDateSchema,
   })
   .superRefine((roster, ctx) => {
     addDuplicateIdIssues(roster.factions, ctx, ['factions'], 'faction');
-    addDuplicateIdIssues(roster.commanders, ctx, ['commanders'], 'commander');
     addDuplicateIdIssues(roster.units, ctx, ['units'], 'unit');
 
     const factionIds = new Set(roster.factions.map((faction) => faction.id));
-    const commanderIds = new Set(roster.commanders.map((commander) => commander.id));
     const unitsById = new Map(roster.units.map((unit) => [unit.id, unit] as const));
 
     roster.units.forEach((unit, index) => {
@@ -356,14 +419,6 @@ export const armyRosterSchema = z
           code: 'custom',
           message: `Unit "${unit.id}" references unknown faction "${unit.factionId}"`,
           path: ['units', index, 'factionId'],
-        });
-      }
-
-      if (unit.commanderId !== null && !commanderIds.has(unit.commanderId)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Unit "${unit.id}" references unknown commander "${unit.commanderId}"`,
-          path: ['units', index, 'commanderId'],
         });
       }
 
@@ -394,6 +449,8 @@ export const armyRosterSchema = z
       });
     }
   });
+
+export const armyRosterSchema = z.preprocess(normalizeArmyRosterInput, armyRosterObjectSchema);
 export type ArmyRoster = z.infer<typeof armyRosterSchema>;
 
 export const unitStatusSchema = z.enum([
@@ -416,7 +473,6 @@ export const unitPhaseStateSchema = z.object({
   visible: z.boolean(),
   effectiveStrength: z.number().nonnegative().nullable(),
   status: unitStatusSchema,
-  commanderOverrideId: idSchema.nullable().optional(),
   labelOverride: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -516,26 +572,15 @@ export const battleScenarioSchema = scenarioBaseSchema.superRefine((scenario, ct
   }
 
   const unitIds = new Set(scenario.rosterSnapshot.units.map((unit) => unit.id));
-  const commanderIds = new Set(scenario.rosterSnapshot.commanders.map((commander) => commander.id));
 
   scenario.phases.forEach((phase, phaseIndex) => {
-    Object.entries(phase.unitStates).forEach(([unitId, state]) => {
+    Object.entries(phase.unitStates).forEach(([unitId]) => {
       if (!unitIds.has(unitId)) {
         ctx.addIssue({
           code: 'custom',
           message: `Phase "${phase.id}" has state for unknown unit "${unitId}"`,
           path: ['phases', phaseIndex, 'unitStates', unitId],
         });
-      }
-
-      if (state.commanderOverrideId !== null && state.commanderOverrideId !== undefined) {
-        if (!commanderIds.has(state.commanderOverrideId)) {
-          ctx.addIssue({
-            code: 'custom',
-            message: `Phase "${phase.id}" references unknown commander "${state.commanderOverrideId}"`,
-            path: ['phases', phaseIndex, 'unitStates', unitId, 'commanderOverrideId'],
-          });
-        }
       }
     });
 
