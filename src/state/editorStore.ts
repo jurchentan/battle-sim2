@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Point, TerrainFeatureKind } from '../models';
+import type { OutsideCanvasMode, Point, TerrainFeatureKind } from '../models';
 
 export type EditorTool = 'select' | 'pan' | TerrainFeatureKind;
 export type DrawMode = 'freehand' | 'vertices';
@@ -32,12 +32,14 @@ interface EditorState {
   activeLayerId: string | null;
   selectedFeatureId: string | null;
   draftPoints: Point[];
+  outsideCanvasMode: OutsideCanvasMode;
   setTool: (tool: EditorTool) => void;
   setDrawMode: (drawMode: DrawMode) => void;
   setActiveLayer: (layerId: string) => void;
   selectFeature: (featureId: string | null) => void;
   setDraftPoints: (points: Point[]) => void;
   clearDraft: () => void;
+  setOutsideCanvasMode: (mode: OutsideCanvasMode) => void;
 }
 
 export const useEditorStore = create<EditorState>()((set) => ({
@@ -46,6 +48,7 @@ export const useEditorStore = create<EditorState>()((set) => ({
   activeLayerId: null,
   selectedFeatureId: null,
   draftPoints: [],
+  outsideCanvasMode: 'show',
 
   setTool: (tool) =>
     set((state) => ({
@@ -63,4 +66,6 @@ export const useEditorStore = create<EditorState>()((set) => ({
   setDraftPoints: (draftPoints) => set({ draftPoints }),
 
   clearDraft: () => set({ draftPoints: [] }),
+
+  setOutsideCanvasMode: (outsideCanvasMode) => set({ outsideCanvasMode }),
 }));

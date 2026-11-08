@@ -142,6 +142,135 @@ describe('terrain document store', () => {
     expect(state.document).not.toBe(replacement);
   });
 
+  it('renames a document as one undoable edit', () => {
+    const before = useTerrainStore.getState().document;
+
+    useTerrainStore.getState().renameDocument('  Renamed map  ');
+
+    const afterRename = useTerrainStore.getState();
+    expect(afterRename.document.name).toBe('Renamed map');
+    expect(afterRename.document.updatedAt).not.toBe(before.updatedAt);
+    expect(afterRename.past).toHaveLength(1);
+
+    useTerrainStore.getState().undo();
+    expect(useTerrainStore.getState().document.name).toBe(before.name);
+  });
+
+  it('expands the canvas as one undoable edit while preserving world coordinates', () => {
+    const before = useTerrainStore.getState().document;
+
+    const error = useTerrainStore.getState().expandCanvas({
+      top: 100,
+      right: 200,
+      bottom: 0,
+      left: 50,
+    });
+
+    expect(error).toBeNull();
+    const after = useTerrainStore.getState();
+    expect(after.document.width).toBe(2250);
+    expect(after.document.height).toBe(1500);
+    expect(after.document.originX).toBe(-50);
+    expect(after.document.originY).toBe(-100);
+    expect(after.document.features).toEqual(before.features);
+    expect(after.document.originalCanvas).toEqual({
+      width: before.width,
+      height: before.height,
+      originX: before.originX,
+      originY: before.originY,
+    });
+    expect(after.past).toHaveLength(1);
+    expect(terrainMapSchema.safeParse(after.document).success).toBe(true);
+
+    useTerrainStore.getState().undo();
+
+    const restored = useTerrainStore.getState().document;
+    expect(restored.width).toBe(before.width);
+    expect(restored.height).toBe(before.height);
+    expect(restored.originX).toBe(before.originX);
+    expect(restored.originY).toBe(before.originY);
+  });
+
+  it('reverts an expanded canvas to its original bounds as one undoable edit', () => {
+    const before = useTerrainStore.getState().document;
+
+    useTerrainStore.getState().expandCanvas({
+      top: 100,
+      right: 200,
+      bottom: 0,
+      left: 50,
+    });
+    expect(useTerrainStore.getState().document.width).toBe(2250);
+
+    expect(useTerrainStore.getState().revertCanvas()).toBe(true);
+
+    const reverted = useTerrainStore.getState();
+    expect(reverted.document.width).toBe(before.width);
+    expect(reverted.document.height).toBe(before.height);
+    expect(reverted.document.originX).toBe(before.originX);
+    expect(reverted.document.originY).toBe(before.originY);
+    expect(reverted.past).toHaveLength(2);
+    expect(useTerrainStore.getState().revertCanvas()).toBe(false);
+    expect(useTerrainStore.getState().past).toHaveLength(2);
+
+    useTerrainStore.getState().undo();
+
+    expect(useTerrainStore.getState().document.width).toBe(2250);
+    expect(useTerrainStore.getState().document.height).toBe(1500);
+  });
+
+  it('records original bounds when a legacy document is first expanded', () => {
+    const legacy = createSeedTerrainMap();
+    delete legacy.originalCanvas;
+    useTerrainStore.getState().loadDocument(legacy);
+
+    useTerrainStore.getState().expandCanvas({
+      top: 0,
+      right: 300,
+      bottom: 0,
+      left: 0,
+    });
+
+    expect(useTerrainStore.getState().document.originalCanvas).toEqual({
+      width: legacy.width,
+      height: legacy.height,
+      originX: legacy.originX,
+      originY: legacy.originY,
+    });
+    expect(useTerrainStore.getState().revertCanvas()).toBe(true);
+    expect(useTerrainStore.getState().document.width).toBe(legacy.width);
+  });
+
+  it('rejects oversized canvas expansions without changing history', () => {
+    const before = useTerrainStore.getState().document;
+
+    const error = useTerrainStore.getState().expandCanvas({
+      top: 0,
+      right: 9000,
+      bottom: 0,
+      left: 0,
+    });
+
+    expect(error).toContain('maximum');
+    expect(useTerrainStore.getState().document).toBe(before);
+    expect(useTerrainStore.getState().past).toHaveLength(0);
+  });
+
+  it('ignores zero-sized canvas expansions', () => {
+    const before = useTerrainStore.getState().document;
+
+    const error = useTerrainStore.getState().expandCanvas({
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    });
+
+    expect(error).toBeNull();
+    expect(useTerrainStore.getState().document).toBe(before);
+    expect(useTerrainStore.getState().past).toHaveLength(0);
+  });
+
   it('deletes a feature as one undoable edit', () => {
     const map = useTerrainStore.getState().document;
     const feature = map.features.find((candidate) => candidate.kind === 'forest');

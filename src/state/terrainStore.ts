@@ -2,11 +2,14 @@ import { create } from 'zustand';
 import {
   createId,
   createSeedTerrainMap,
+  type TerrainCanvasMargins,
   type TerrainFeature,
   type TerrainGeometry,
   type TerrainLayer,
   type TerrainMap,
 } from '../models';
+import { currentCanvasBounds } from '../features/terrain/canvasBounds';
+import { computeExpandedCanvas } from '../features/terrain/canvasExpansion';
 
 const HISTORY_LIMIT = 100;
 const DUPLICATE_OFFSET = 24;
@@ -82,6 +85,9 @@ export interface TerrainEditorStore {
   past: TerrainMap[];
   future: TerrainMap[];
   loadDocument: (document: TerrainMap) => void;
+  renameDocument: (name: string) => void;
+  expandCanvas: (margins: TerrainCanvasMargins) => string | null;
+  revertCanvas: () => boolean;
   addFeature: (feature: TerrainFeature) => void;
   updateFeature: (featureId: string, update: (feature: TerrainFeature) => TerrainFeature) => void;
   deleteFeature: (featureId: string) => void;
@@ -105,6 +111,67 @@ export const useTerrainStore = create<TerrainEditorStore>()((set, get) => ({
       past: [],
       future: [],
     }),
+
+  renameDocument: (name) =>
+    set((state) => {
+      const trimmed = name.trim();
+      if (!trimmed || trimmed === state.document.name) return state;
+
+      return commit(state, {
+        ...state.document,
+        name: trimmed,
+        updatedAt: timestamp(),
+      });
+    }),
+
+  expandCanvas: (margins) => {
+    const state = get();
+    const result = computeExpandedCanvas(state.document, margins);
+    if (!result.ok) return result.error;
+    if (!result.canvas.changed) return null;
+
+    const { width, height, originX, originY } = result.canvas;
+    set(
+      commit(state, {
+        ...state.document,
+        width,
+        height,
+        originX,
+        originY,
+        originalCanvas: state.document.originalCanvas ?? currentCanvasBounds(state.document),
+        updatedAt: timestamp(),
+      }),
+    );
+    return null;
+  },
+
+  revertCanvas: () => {
+    const state = get();
+    const original = state.document.originalCanvas;
+    if (!original) return false;
+
+    const current = currentCanvasBounds(state.document);
+    if (
+      current.width === original.width &&
+      current.height === original.height &&
+      current.originX === original.originX &&
+      current.originY === original.originY
+    ) {
+      return false;
+    }
+
+    set(
+      commit(state, {
+        ...state.document,
+        width: original.width,
+        height: original.height,
+        originX: original.originX,
+        originY: original.originY,
+        updatedAt: timestamp(),
+      }),
+    );
+    return true;
+  },
 
   addFeature: (feature) =>
     set((state) => {

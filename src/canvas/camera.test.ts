@@ -66,6 +66,35 @@ describe('camera transforms', () => {
     expect(screenBottomRight.x).toBeLessThanOrEqual(1200 - 50);
   });
 
+  it('fits an expanded canvas around its origin offset', () => {
+    const originX = -400;
+    const originY = -100;
+    const mapWidth = 2600;
+    const mapHeight = 1800;
+    const camera = fitMapToViewport(
+      mapWidth,
+      mapHeight,
+      { width: 1400, height: 900 },
+      50,
+      originX,
+      originY,
+    );
+
+    const screenTopLeft = worldToScreen(camera, { x: originX, y: originY });
+    const screenBottomRight = worldToScreen(camera, {
+      x: originX + mapWidth,
+      y: originY + mapHeight,
+    });
+
+    expect(camera.scale).toBeCloseTo((900 - 100) / mapHeight, 9);
+    expect((screenTopLeft.x + screenBottomRight.x) / 2).toBeCloseTo(700, 9);
+    expect((screenTopLeft.y + screenBottomRight.y) / 2).toBeCloseTo(450, 9);
+    expect(screenTopLeft.x).toBeGreaterThanOrEqual(50);
+    expect(screenTopLeft.y).toBeGreaterThanOrEqual(50);
+    expect(screenBottomRight.x).toBeLessThanOrEqual(1350);
+    expect(screenBottomRight.y).toBeLessThanOrEqual(850);
+  });
+
   it('pans by changing only the camera offset', () => {
     const camera: Camera = { scale: 1.25, offsetX: 10, offsetY: 20 };
     const panned = panCamera(camera, -32, 54);

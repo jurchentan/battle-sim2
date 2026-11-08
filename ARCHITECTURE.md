@@ -1,9 +1,10 @@
 # Architecture
 
-Status: M2 complete (hand-drawn terrain editor). Terrain editing supports area,
-path, symbol, and label tools, style controls, layer visibility/locking/z-order,
-object stacking and duplication, and simplified freehand drawing. Persistence
-begins in M3.
+Status: M3 complete (terrain library). Terrain editing supports area, path,
+symbol, and label tools, style controls, layer visibility/locking/z-order,
+object stacking and duplication, and simplified freehand drawing. Terrain
+documents persist in IndexedDB with autosave, document management, and versioned
+JSON import/export.
 
 ## 1. Stack and tooling
 
@@ -13,7 +14,7 @@ begins in M3.
 | Canvas      | Konva / react-konva                          |
 | State       | Zustand (workspace, camera, editor, terrain) |
 | Validation  | Zod 4                                        |
-| Persistence | Dexie / IndexedDB (from M3)                  |
+| Persistence | Dexie / IndexedDB                            |
 | Styling     | Tailwind CSS 4 via `@tailwindcss/vite`       |
 | Unit tests  | Vitest                                       |
 | E2E tests   | Playwright                                   |
@@ -32,9 +33,11 @@ src/
   app/                 root shell, workspace tabs, workspace panels
   canvas/              camera math/store, geometry, layer ordering, Konva viewport
   components/          reusable presentational components
+  features/files/      versioned JSON import/export and downloads
+  features/library/    Dexie terrain library, document helpers, library dialog
   features/terrain/    toolbar, tool rail, layers, inspector, shortcuts, factories
   models/              TypeScript types, Zod schemas, seed documents, id helper
-  state/               Zustand stores (workspace, camera, editor, terrain history)
+  state/               Zustand stores (workspace, camera, editor, terrain, library)
   styles/              global Tailwind entry and theme tokens
 ```
 
@@ -44,8 +47,6 @@ Planned additions follow the original spec:
   features/armies/     roster editor and hierarchy (M4)
   features/units/      formation rendering and placement (M5)
   features/phases/     timeline, phase snapshots, annotations (M6)
-  features/library/    IndexedDB library browser (M3-M4)
-  features/files/      import/export, validation, PNG capture (M3, M7)
   tests/               cross-cutting model/state/geometry tests
 e2e/                   Playwright specs
 ```
@@ -60,6 +61,13 @@ cloned in `src/models/seed.ts`.
 
 ### TerrainMap
 
+- `width`/`height` define the finite canvas, with `originX`/`originY` as the
+  world-coordinate position of its top-left corner. Older version-1 documents
+  default both origins to zero during validation and library hydration.
+- `originalCanvas` records the size and origin the map was created with so an
+  expanded canvas can be reverted. It is optional for backward compatibility;
+  legacy documents capture their current bounds on first expansion.
+- Canvas dimensions are capped at 10000 document units per axis.
 - `layers`: ordered by explicit `zIndex`; each layer has `visible` and `locked`.
 - `features`: discriminated `kind` plus geometry/style unions.
 - Geometry variants: `polygon`, `polyline`, `point`, `textAnchor`.
@@ -102,11 +110,13 @@ cloned in `src/models/seed.ts`.
 ## 4. State and undo strategy
 
 - Document and transient UI state are separate Zustand stores
-  (`terrainStore`, `editorStore`, `cameraStore`).
+  (`terrainStore`, `editorStore`, `cameraStore`) plus `libraryStore` for the
+  active saved document and persistence status.
 - Documents are normalized by ID; selection stores IDs, never object references.
 - Every document edit goes through explicit named actions (`addFeature`,
   `updateFeature`, `deleteFeature`, `duplicateFeature`, `moveFeature`,
-  `setLayerVisible`, `setLayerLocked`, `moveLayer`, later phase/roster actions).
+  `setLayerVisible`, `setLayerLocked`, `moveLayer`, `renameDocument`,
+  `expandCanvas`, later phase/roster actions).
 - Undo/redo is a snapshot history around committed document edits, capped at 100
   entries in `terrainStore`.
 - Pointer gestures buffer a preview, then commit once on pointer-up: dragging,
@@ -117,17 +127,35 @@ cloned in `src/models/seed.ts`.
 - Locked or hidden layers reject document mutations, including add, update,
   delete, duplicate, and z-order changes.
 - History is scoped to the open document and reset deliberately on open/create.
-- Autosave is debounced and only runs after successful committed edits (M3).
+- A terrain store subscription schedules a 700 ms debounced IndexedDB write after
+  each committed edit. Save status moves through `unsaved`, `saving`, and `saved`
+  (or `error`); loading a document suppresses autosave so hydration is not
+  mistaken for an edit. Opening, creating, importing, or deleting a document
+  flushes pending edits first.
 
 ## 5. Canvas and interaction
 
 - Single document coordinate space (default 2000 × 1400), centered and fitted in
   the viewport with an aged-paper background.
+- Canvas expansion adds margin space on any side and moves `originX`/`originY`
+  for top/left additions. Existing features and camera-independent world
+  coordinates never move; the paper rectangle renders at the document origin.
+- The expansion dialog previews the result and can revert the canvas to the
+  recorded `originalCanvas` bounds as one undoable edit. Features outside the
+  original bounds are retained.
+- An editor-only outside-canvas mode controls expanded regions without changing
+  the document: `show` renders everything, `dim` darkens expansion strips, and
+  `hide` clips features and paper to the original bounds. Fit uses the visible
+  bounds for the active mode.
 - Camera transform `{ scale, offsetX, offsetY }` with tested
   `screenToWorld`/`worldToScreen`, cursor-centred wheel zoom, pan (pan tool,
-  left-drag on empty canvas, middle-drag, or Space-drag), and fit-to-map.
+  left-drag on empty canvas, middle-drag, or Space-drag), and origin-aware
+  fit-to-map.
 - Document geometry is stored in world coordinates; camera changes never rewrite
   geometry.
+- New maps are created from a dialog with a name, preset/custom starting size,
+  and a reserved non-interactive area for future faction and campaign / war
+  folder selectors.
 - Current render order: paper, visible terrain features ordered by layer and
   feature z-index, draft/freehand preview, selection overlay. Hidden layers are
   omitted from rendering.
@@ -146,29 +174,38 @@ cloned in `src/models/seed.ts`.
   back to world geometry on commit.
 - Selection handles and guides live outside exported layers.
 
-## 6. Persistence and file formats (planned)
+## 6. Persistence and file formats
 
-Three Dexie tables (terrain maps, army rosters, battle scenarios) plus optional
-viewport preferences. Autosave uses debounced writes and a saved/unsaved
-indicator. `localStorage` is not used for complete projects.
+M3 adds the `terrainMaps` table to a Dexie database named `battle-map-editor`,
+indexed by `id`, `name`, and `updatedAt`. Future milestones add roster and
+scenario tables through Dexie schema versions. `localStorage` stores only the ID
+of the last open terrain map (a UI preference), never document contents.
+
+Autosave is debounced inside `libraryStore`; opening, creating, importing, or
+deleting flushes pending edits first. A missing final flush is avoided by
+writing the current in-memory document on every save, with the save status
+visible in the toolbar. Failed saves leave the editor open and display the error.
 
 Versioned JSON formats:
 
 - `*.terrain.json` — `TerrainMap` (`schemaVersion: 1`)
-- `*.army.json` — `ArmyRoster` (`schemaVersion: 1`)
-- `*.battle.json` — `BattleScenario` (`schemaVersion: 1`)
+- `*.army.json` — `ArmyRoster` (planned, M4)
+- `*.battle.json` — `BattleScenario` (planned, M7)
 
-Import pipeline:
+Terrain import pipeline:
 
 1. Parse JSON safely.
-2. Validate with Zod against the schema version.
-3. Migrate known older versions or reject unsupported versions clearly.
-4. Check references and phase invariants (schema refinements plus explicit
-   cross-checks).
-5. Offer open/replace only after validation; failures leave current work intact.
+2. Require an integer `schemaVersion`; reject versions newer than this app.
+3. Run the migration registry from the file version to the current version, or
+   reject with a clear unsupported-version error.
+4. Validate with `terrainMapSchema`, including layer references, geometry/style
+   compatibility, and ID uniqueness.
+5. Only after validation succeeds, add the map to the library and open it. If
+   the incoming ID already exists, the import receives a new ID so it cannot
+   overwrite existing work. Failures leave the active document untouched.
 
-PNG export renders the active phase only, at configurable resolution, excluding
-editor UI and selection handles.
+Downloads use the serialized document and a normalized `.terrain.json` filename.
+PNG export remains a later milestone.
 
 ## 7. Testing strategy
 
@@ -186,7 +223,12 @@ plus Playwright flows for drawing, undo/redo, zoom, dragging, resizing, and
 rotating. M2 adds factory coverage for every area/path/symbol kind, freehand
 simplification tests, store tests for delete/duplicate/z-order/layer guards, and
 Playwright flows for each tool, style editing, layer hiding/locking, and
-freehand drawing.
+freehand drawing. M3 adds terrain document/import-export unit tests plus
+Playwright coverage for autosave reload recovery, library create/copy/rename/
+delete/open flows, export/import semantic round-tripping, custom-size creation,
+canvas expansion with undo/redo and reload persistence, outside-canvas
+show/grey/hide modes, reverting to recorded original bounds, and maximum-size
+rejection.
 
 ## 8. Conventions
 

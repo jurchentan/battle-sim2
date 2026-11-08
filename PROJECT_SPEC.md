@@ -1,11 +1,12 @@
 # Battle Map Editor — Project Specification
 
-Status: M2 complete (hand-drawn terrain editor). Source of truth: `Readme.md`
+Status: M3 complete (terrain library). Source of truth: `Readme.md`
 (engineering specification) plus `Info.md` (product vision). If documents
-disagree, `Readme.md` wins for implementation details. The terrain workspace now
+disagree, `Readme.md` wins for implementation details. The terrain workspace
 supports area and path tools, symbols and labels, style editing, layer
-visibility/locking/z-order, object stacking, delete/duplicate, and simplified
-freehand drawing.
+visibility/locking/z-order, object stacking, delete/duplicate, simplified
+freehand drawing, and a local IndexedDB library with autosave plus versioned
+JSON import/export.
 
 ## 1. Product summary
 
@@ -47,7 +48,15 @@ silently mutate existing scenarios.
 
 ### Terrain map creation
 
-- Blank finite canvas (default document space 2000 × 1400).
+- Blank finite canvas (default document space 2000 × 1400, maximum
+  10000 × 10000).
+- Canvas expansion on any side; existing features keep their world coordinates
+  while the document origin moves with the top/left margins.
+- Expanded maps can show, grey out, or hide areas outside the original canvas,
+  and the canvas can be reverted to its recorded original size without deleting
+  features.
+- New-map flow offers a name plus preset or custom starting dimensions. Space is
+  reserved in the dialog for future faction and campaign / war folder selectors.
 - Draw and edit polygons (forest, field, swamp, lake), paths (river, road,
   contour, custom path), point symbols (building, bridge, fortification), and
   text labels.

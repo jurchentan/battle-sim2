@@ -13,6 +13,7 @@ import {
   createSeedRoster,
   createSeedTerrainMap,
 } from './seed';
+import { MAX_TERRAIN_DIMENSION } from './terrainCanvas';
 
 interface ValidationResult {
   success: boolean;
@@ -156,6 +157,13 @@ describe('terrain validation', () => {
     delete label.name;
 
     expectFailure(terrainMapSchema.safeParse(terrain), 'Label features require a name');
+  });
+
+  it('rejects canvases larger than the maximum dimension', () => {
+    const terrain = createSeedTerrainMap();
+    terrain.width = MAX_TERRAIN_DIMENSION + 1;
+
+    expectFailure(terrainMapSchema.safeParse(terrain));
   });
 
   it('rejects malformed and future-version documents', () => {

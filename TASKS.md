@@ -46,15 +46,27 @@ restored after navigation.
 Gate: recreate a stylized map with wooded regions, two streams, roads, contours,
 and a village; every object remains individually editable.
 
-## M3 — Terrain library
+## M3 — Terrain library (complete)
 
-- [ ] Dexie store for terrain documents
-- [ ] New, save, reopen, duplicate, rename, delete
-- [ ] Versioned JSON import/export with Zod validation and migration hook
-- [ ] Autosave and saved/unsaved indicator
+- [x] Dexie store for terrain documents
+- [x] New, save, reopen, duplicate, rename, delete
+- [x] Versioned JSON import/export with Zod validation and migration hook
+- [x] Autosave and saved/unsaved indicator
+- [x] New-map dialog with name and preset/custom starting size
+- [x] Canvas expansion in all directions with origin-preserving world coordinates
+- [x] Outside-canvas view toggle: show all, grey out, or hide expanded regions
+- [x] Revert an expanded canvas to its recorded original size (undoable)
 
 Gate: reload browser and recover every shape/style; exported map reimports with
 equivalent semantic data.
+
+### Terrain creation follow-ups
+
+- [ ] Add a faction selector to the New map dialog (placeholder area reserved)
+- [ ] Add a campaign / war folder selector to the New map dialog (placeholder
+      area reserved)
+- [ ] Group and filter the terrain library by campaign / war folder
+- [ ] Link new terrain maps to a scenario from the creation dialog
 
 ## M4 — Army roster editor
 

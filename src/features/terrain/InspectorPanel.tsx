@@ -3,6 +3,7 @@ import { pointsCenter } from '../../canvas/geometry';
 import type { Point, TerrainFeature, TerrainMap } from '../../models';
 import { useEditorStore } from '../../state/editorStore';
 import { useTerrainStore } from '../../state/terrainStore';
+import { isCanvasExpanded, originalCanvasBounds } from './canvasBounds';
 import { FeatureStyleEditor } from './FeatureStyleEditor';
 import { FEATURE_KIND_LABELS } from './kinds';
 
@@ -128,6 +129,8 @@ export function InspectorPanel({ map }: { map: TerrainMap }) {
   const moveFeature = useTerrainStore((state) => state.moveFeature);
   const feature = map.features.find((candidate) => candidate.id === selectedFeatureId) ?? null;
   const layer = feature ? map.layers.find((candidate) => candidate.id === feature.layerId) : null;
+  const canvasExpanded = isCanvasExpanded(map);
+  const originalCanvas = originalCanvasBounds(map);
 
   const siblings = feature
     ? map.features
@@ -272,11 +275,24 @@ export function InspectorPanel({ map }: { map: TerrainMap }) {
               </p>
               <p className="font-display mt-1 text-lg font-semibold text-[#2f2b23]">{map.name}</p>
               <p className="mt-1 text-xs text-[#7c715c]">
-                {map.width} × {map.height} document units
+                <span data-testid="document-size">
+                  {map.width} × {map.height}
+                </span>{' '}
+                document units · origin{' '}
+                <span data-testid="document-origin">
+                  {map.originX}, {map.originY}
+                </span>
               </p>
             </div>
 
             <dl>
+              {canvasExpanded ? (
+                <DetailRow
+                  label="Original canvas"
+                  value={`${originalCanvas.width} × ${originalCanvas.height} · ${originalCanvas.originX}, ${originalCanvas.originY}`}
+                  testId="document-original-size"
+                />
+              ) : null}
               <DetailRow label="Layers" value={String(map.layers.length)} />
               <DetailRow label="Features" value={String(map.features.length)} />
             </dl>

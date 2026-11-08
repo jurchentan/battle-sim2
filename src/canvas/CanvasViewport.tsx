@@ -15,6 +15,13 @@ import {
   isPointKind,
   type DrawKind,
 } from '../features/terrain/kinds';
+import {
+  currentCanvasBounds,
+  isCanvasExpanded,
+  originalCanvasBounds,
+  outsideCanvasRegions,
+  visibleCanvasBounds,
+} from '../features/terrain/canvasBounds';
 import { isTypingTarget } from '../features/terrain/useEditorShortcuts';
 import type { Point, TerrainMap } from '../models';
 import { useEditorStore } from '../state/editorStore';
@@ -63,6 +70,7 @@ export function CanvasViewport() {
   const clearDraft = useEditorStore((state) => state.clearDraft);
   const setTool = useEditorStore((state) => state.setTool);
   const selectFeature = useEditorStore((state) => state.selectFeature);
+  const outsideCanvasMode = useEditorStore((state) => state.outsideCanvasMode);
   const camera = useCameraStore((state) => state.camera);
 
   useLayoutEffect(() => {
@@ -97,9 +105,10 @@ export function CanvasViewport() {
     if (size.width <= 0 || size.height <= 0) return;
     const cameraState = useCameraStore.getState();
     if (!cameraState.fitted) {
-      cameraState.fit(map.width, map.height);
+      const bounds = visibleCanvasBounds(map, outsideCanvasMode);
+      cameraState.fit(bounds.width, bounds.height, bounds.originX, bounds.originY);
     }
-  }, [map.height, map.id, map.width, size.height, size.width]);
+  }, [map, outsideCanvasMode, size.height, size.width]);
 
   const stopPan = useCallback(() => {
     panCleanupRef.current?.();
@@ -385,10 +394,19 @@ export function CanvasViewport() {
             ? 'default'
             : 'crosshair';
 
+  const canvasExpanded = isCanvasExpanded(map);
+  const originalBounds = originalCanvasBounds(map);
+  const hideOutsideCanvas = outsideCanvasMode === 'hide' && canvasExpanded;
+  const paperBounds = hideOutsideCanvas ? originalBounds : currentCanvasBounds(map);
+  const dimRegions = outsideCanvasMode === 'dim' && canvasExpanded ? outsideCanvasRegions(map) : [];
+  const clipBounds = hideOutsideCanvas ? originalBounds : null;
+
   return (
     <div
       ref={containerRef}
       data-testid="terrain-canvas"
+      data-outside-mode={outsideCanvasMode}
+      data-canvas-expanded={canvasExpanded ? 'true' : 'false'}
       className="relative h-full min-h-0 w-full overflow-hidden bg-[#e8dfcd]"
       style={{ cursor, touchAction: 'none' }}
     >
@@ -409,10 +427,10 @@ export function CanvasViewport() {
               scaleY={camera.scale}
             >
               <Rect
-                x={0}
-                y={0}
-                width={map.width}
-                height={map.height}
+                x={paperBounds.originX}
+                y={paperBounds.originY}
+                width={paperBounds.width}
+                height={paperBounds.height}
                 fill={PAPER_FILL[map.backgroundStyle]}
                 stroke="#c4b48e"
                 strokeWidth={2}
@@ -422,15 +440,41 @@ export function CanvasViewport() {
                 shadowOffsetY={10}
               />
               <Rect
-                x={12}
-                y={12}
-                width={map.width - 24}
-                height={map.height - 24}
+                x={paperBounds.originX + 12}
+                y={paperBounds.originY + 12}
+                width={Math.max(0, paperBounds.width - 24)}
+                height={Math.max(0, paperBounds.height - 24)}
                 stroke="#d2c3a1"
                 strokeWidth={1}
                 dash={[3, 7]}
                 opacity={0.7}
               />
+
+              {dimRegions.map((region, index) => (
+                <Rect
+                  key={`outside-canvas-${index}`}
+                  x={region.originX}
+                  y={region.originY}
+                  width={region.width}
+                  height={region.height}
+                  fill="rgba(47, 43, 35, 0.22)"
+                  listening={false}
+                />
+              ))}
+
+              {canvasExpanded && !hideOutsideCanvas ? (
+                <Rect
+                  x={originalBounds.originX}
+                  y={originalBounds.originY}
+                  width={originalBounds.width}
+                  height={originalBounds.height}
+                  stroke="#9c8c6b"
+                  strokeWidth={1.5}
+                  dash={[7, 5]}
+                  opacity={0.85}
+                  listening={false}
+                />
+              ) : null}
             </Group>
           </Layer>
 
@@ -440,6 +484,10 @@ export function CanvasViewport() {
               y={camera.offsetY}
               scaleX={camera.scale}
               scaleY={camera.scale}
+              clipX={clipBounds?.originX}
+              clipY={clipBounds?.originY}
+              clipWidth={clipBounds?.width}
+              clipHeight={clipBounds?.height}
             >
               <FeatureLayer
                 map={map}
@@ -455,6 +503,10 @@ export function CanvasViewport() {
               y={camera.offsetY}
               scaleX={camera.scale}
               scaleY={camera.scale}
+              clipX={clipBounds?.originX}
+              clipY={clipBounds?.originY}
+              clipWidth={clipBounds?.width}
+              clipHeight={clipBounds?.height}
             >
               {draftPoints.length > 0 ? (
                 <>

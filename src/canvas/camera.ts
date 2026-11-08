@@ -63,6 +63,8 @@ export function fitMapToViewport(
   mapHeight: number,
   viewport: ViewportSize,
   padding = DEFAULT_FIT_PADDING,
+  originX = 0,
+  originY = 0,
 ): Camera {
   const availableWidth = Math.max(1, viewport.width - padding * 2);
   const availableHeight = Math.max(1, viewport.height - padding * 2);
@@ -70,7 +72,7 @@ export function fitMapToViewport(
 
   return {
     scale,
-    offsetX: (viewport.width - mapWidth * scale) / 2,
-    offsetY: (viewport.height - mapHeight * scale) / 2,
+    offsetX: (viewport.width - mapWidth * scale) / 2 - originX * scale,
+    offsetY: (viewport.height - mapHeight * scale) / 2 - originY * scale,
   };
 }

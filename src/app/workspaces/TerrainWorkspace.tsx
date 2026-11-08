@@ -6,10 +6,12 @@ import { LayerPanel } from '../../features/terrain/LayerPanel';
 import { ToolRail } from '../../features/terrain/ToolRail';
 import { useEditorShortcuts } from '../../features/terrain/useEditorShortcuts';
 import { useEditorStore } from '../../state/editorStore';
+import { useLibraryStore } from '../../state/libraryStore';
 import { useTerrainStore } from '../../state/terrainStore';
 
 export function TerrainWorkspace() {
   const map = useTerrainStore((state) => state.document);
+  const libraryReady = useLibraryStore((state) => state.ready);
   const activeLayerId = useEditorStore((state) => state.activeLayerId);
   const setActiveLayer = useEditorStore((state) => state.setActiveLayer);
   const selectedFeatureId = useEditorStore((state) => state.selectedFeatureId);
@@ -36,6 +38,26 @@ export function TerrainWorkspace() {
       selectFeature(null);
     }
   }, [map.features, map.layers, selectFeature, selectedFeatureId]);
+
+  if (!libraryReady) {
+    return (
+      <section
+        role="tabpanel"
+        id="workspace-panel-terrain"
+        aria-labelledby="workspace-tab-terrain"
+        className="flex h-full min-h-0 flex-col"
+      >
+        <div className="border-b border-[#d8cdb5] bg-[#f6efe0] px-4 py-2">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-[#2f2b23]">
+            Terrain Editor
+          </h2>
+        </div>
+        <div className="flex flex-1 items-center justify-center text-sm text-[#7c715c]">
+          Opening the local terrain library…
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useLibraryStore } from '../../state/libraryStore';
 import { DRAW_MODE_SHORTCUTS, TOOL_SHORTCUTS, useEditorStore } from '../../state/editorStore';
 import { useTerrainStore } from '../../state/terrainStore';
 
@@ -18,6 +19,7 @@ export function useEditorShortcuts(): void {
   const deleteFeature = useTerrainStore((state) => state.deleteFeature);
   const duplicateFeature = useTerrainStore((state) => state.duplicateFeature);
   const moveFeature = useTerrainStore((state) => state.moveFeature);
+  const saveNow = useLibraryStore((state) => state.saveNow);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -25,6 +27,12 @@ export function useEditorShortcuts(): void {
 
       const key = event.key.toLowerCase();
       const meta = event.metaKey || event.ctrlKey;
+
+      if (meta && key === 's') {
+        event.preventDefault();
+        void saveNow();
+        return;
+      }
 
       if (meta && key === 'z') {
         event.preventDefault();
@@ -101,6 +109,7 @@ export function useEditorShortcuts(): void {
     duplicateFeature,
     moveFeature,
     redo,
+    saveNow,
     selectFeature,
     selectedFeatureId,
     setDrawMode,

@@ -17,7 +17,7 @@ interface CameraState {
   panBy: (dx: number, dy: number) => void;
   zoomAtPoint: (anchor: ScreenPoint, factor: number) => void;
   zoomByStep: (factor: number) => void;
-  fit: (mapWidth: number, mapHeight: number) => void;
+  fit: (mapWidth: number, mapHeight: number, originX?: number, originY?: number) => void;
   reset: () => void;
 }
 
@@ -39,11 +39,11 @@ export const useCameraStore = create<CameraState>()((set, get) => ({
     get().zoomAtPoint({ x: viewport.width / 2, y: viewport.height / 2 }, factor);
   },
 
-  fit: (mapWidth, mapHeight) => {
+  fit: (mapWidth, mapHeight, originX = 0, originY = 0) => {
     const { viewport } = get();
     if (viewport.width <= 0 || viewport.height <= 0) return;
     set({
-      camera: fitMapToViewport(mapWidth, mapHeight, viewport),
+      camera: fitMapToViewport(mapWidth, mapHeight, viewport, undefined, originX, originY),
       fitted: true,
     });
   },

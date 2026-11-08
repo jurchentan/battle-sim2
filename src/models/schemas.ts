@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_TERRAIN_DIMENSION } from './terrainCanvas';
 
 export const SCHEMA_VERSION = 1;
 
@@ -13,6 +14,14 @@ export const pointSchema = z.object({
   y: finiteNumberSchema,
 });
 export type Point = z.infer<typeof pointSchema>;
+
+export const terrainCanvasBoundsSchema = z.object({
+  width: z.number().positive().max(MAX_TERRAIN_DIMENSION),
+  height: z.number().positive().max(MAX_TERRAIN_DIMENSION),
+  originX: finiteNumberSchema,
+  originY: finiteNumberSchema,
+});
+export type TerrainCanvasBoundsData = z.infer<typeof terrainCanvasBoundsSchema>;
 
 export const polygonGeometrySchema = z.object({
   type: z.literal('polygon'),
@@ -209,8 +218,11 @@ export const terrainMapSchema = z
     id: idSchema,
     name: nameSchema,
     description: z.string().optional(),
-    width: z.number().positive(),
-    height: z.number().positive(),
+    width: z.number().positive().max(MAX_TERRAIN_DIMENSION),
+    height: z.number().positive().max(MAX_TERRAIN_DIMENSION),
+    originX: finiteNumberSchema.default(0),
+    originY: finiteNumberSchema.default(0),
+    originalCanvas: terrainCanvasBoundsSchema.optional(),
     backgroundStyle: backgroundStyleSchema,
     layers: z.array(terrainLayerSchema),
     features: z.array(terrainFeatureSchema),
