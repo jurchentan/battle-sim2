@@ -30,6 +30,7 @@ export function FeatureLayer({ map, selectionEnabled, draggable }: FeatureLayerP
   const nodeMap = useRef(new Map<string, Konva.Node>());
 
   const ordered = useMemo(() => getOrderedFeatures(map), [map]);
+  const visibleOrdered = useMemo(() => ordered.filter(({ layer }) => layer.visible), [ordered]);
   const selectedFeature = useMemo(
     () => map.features.find((feature) => feature.id === selectedFeatureId) ?? null,
     [map.features, selectedFeatureId],
@@ -50,25 +51,24 @@ export function FeatureLayer({ map, selectionEnabled, draggable }: FeatureLayerP
     [updateFeature],
   );
 
+  const geometryType = selectedFeature?.geometry.type;
+  const selectedLayer = selectedFeature
+    ? map.layers.find((layer) => layer.id === selectedFeature.layerId)
+    : undefined;
+  const canTransform =
+    selectionEnabled && selectedFeature !== null && selectedLayer !== undefined
+      ? isLayerInteractive(selectedLayer)
+      : false;
+
   useEffect(() => {
     const transformer = transformerRef.current;
     if (!transformer) return;
 
     const node =
-      selectionEnabled && selectedFeatureId ? nodeMap.current.get(selectedFeatureId) : undefined;
+      canTransform && selectedFeatureId ? nodeMap.current.get(selectedFeatureId) : undefined;
     transformer.nodes(node ? [node] : []);
     transformer.getLayer()?.batchDraw();
-  }, [selectedFeatureId, selectedFeature, selectionEnabled]);
-
-  const geometryType = selectedFeature?.geometry.type;
-  const selectedLayerInteractive = selectedFeature
-    ? map.layers.find((layer) => layer.id === selectedFeature.layerId)
-    : undefined;
-  const canTransform =
-    selectionEnabled &&
-    selectedFeature !== null &&
-    selectedLayerInteractive !== undefined &&
-    isLayerInteractive(selectedLayerInteractive);
+  }, [canTransform, selectedFeatureId, selectedFeature]);
 
   const enabledAnchors =
     geometryType === 'textAnchor'
@@ -79,7 +79,7 @@ export function FeatureLayer({ map, selectionEnabled, draggable }: FeatureLayerP
 
   return (
     <>
-      {ordered.map(({ feature, layer }) => {
+      {visibleOrdered.map(({ feature, layer }) => {
         const interactive = selectionEnabled && isLayerInteractive(layer);
 
         return (

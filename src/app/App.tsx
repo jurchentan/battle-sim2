@@ -45,7 +45,7 @@ export function App() {
 
       <footer className="shrink-0 border-t border-[#d8cdb5] bg-[#f1e9d8]/80">
         <div className="flex w-full flex-wrap items-center justify-between gap-2 px-6 py-2 text-xs text-[#7c715c]">
-          <span>Milestone M1 · Canvas foundation</span>
+          <span>Milestone M2 · Complete hand-drawn terrain editor</span>
           <span>Desktop workspace · No accounts or network required</span>
         </div>
       </footer>

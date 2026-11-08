@@ -10,10 +10,16 @@ test('draws a polygon and supports undo, redo, and zoom', async ({ page }) => {
   const counter = page.getByTestId('feature-count-total');
   await expect(counter).toHaveText('9 features');
 
+  await expect(page.getByRole('button', { name: 'Freehand mode' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Vertices mode' }).click();
+
   const zoom = page.getByTestId('zoom-level');
   const initialZoom = await zoom.textContent();
 
-  await page.getByRole('button', { name: 'Polygon tool' }).click();
+  await page.getByRole('button', { name: 'Field tool' }).click();
 
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Canvas has no bounding box');
@@ -25,7 +31,7 @@ test('draws a polygon and supports undo, redo, and zoom', async ({ page }) => {
   await page.keyboard.press('Enter');
 
   await expect(counter).toHaveText('10 features');
-  await expect(page.getByText('Field', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('selected-kind')).toHaveText('Field');
   await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Undo' }).click();
@@ -41,6 +47,38 @@ test('draws a polygon and supports undo, redo, and zoom', async ({ page }) => {
   await expect(zoom).toHaveText(initialZoom ?? '');
 });
 
+test('pans by dragging empty canvas with the select tool', async ({ page }) => {
+  await page.goto('/');
+  const canvas = page.getByTestId('terrain-canvas');
+  await expect(canvas).toBeVisible();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas has no bounding box');
+
+  const scale = Math.min((box.width - 96) / 2000, (box.height - 96) / 1400);
+  const offsetX = (box.width - 2000 * scale) / 2;
+  const offsetY = (box.height - 1400 * scale) / 2;
+  const toScreen = (x: number, y: number) => ({
+    x: box.x + offsetX + x * scale,
+    y: box.y + offsetY + y * scale,
+  });
+
+  const building = toScreen(1080, 940);
+  await page.mouse.click(building.x, building.y);
+  await expect(page.getByTestId('selected-kind')).toHaveText('Building');
+
+  const dragStart = toScreen(1000, 1200);
+  const shift = 120;
+  await page.mouse.move(dragStart.x, dragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(dragStart.x + shift, dragStart.y, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByTestId('selected-kind')).not.toBeVisible();
+
+  await page.mouse.click(building.x + shift, building.y);
+  await expect(page.getByTestId('selected-kind')).toHaveText('Building');
+});
+
 test('drags a seeded object and undoes the move as one gesture', async ({ page }) => {
   await page.goto('/');
   const canvas = page.getByTestId('terrain-canvas');
@@ -49,7 +87,13 @@ test('drags a seeded object and undoes the move as one gesture', async ({ page }
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Canvas has no bounding box');
 
-  const start = { x: box.x + box.width * 0.255, y: box.y + box.height * 0.313 };
+  const scale = Math.min((box.width - 96) / 2000, (box.height - 96) / 1400);
+  const offsetX = (box.width - 2000 * scale) / 2;
+  const offsetY = (box.height - 1400 * scale) / 2;
+  const start = {
+    x: box.x + offsetX + 425 * scale,
+    y: box.y + offsetY + 315 * scale,
+  };
   await page.mouse.click(start.x, start.y);
 
   const position = page.getByTestId('selected-position');

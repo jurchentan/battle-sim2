@@ -1,8 +1,9 @@
 # Architecture
 
-Status: M1 complete (canvas foundation). Terrain editing supports the core
-camera, selection, drawing, and undo flows; persistence and expanded terrain
-styling begin in later milestones.
+Status: M2 complete (hand-drawn terrain editor). Terrain editing supports area,
+path, symbol, and label tools, style controls, layer visibility/locking/z-order,
+object stacking and duplication, and simplified freehand drawing. Persistence
+begins in M3.
 
 ## 1. Stack and tooling
 
@@ -104,13 +105,17 @@ cloned in `src/models/seed.ts`.
   (`terrainStore`, `editorStore`, `cameraStore`).
 - Documents are normalized by ID; selection stores IDs, never object references.
 - Every document edit goes through explicit named actions (`addFeature`,
-  `updateFeature`, later phase/roster actions).
+  `updateFeature`, `deleteFeature`, `duplicateFeature`, `moveFeature`,
+  `setLayerVisible`, `setLayerLocked`, `moveLayer`, later phase/roster actions).
 - Undo/redo is a snapshot history around committed document edits, capped at 100
   entries in `terrainStore`.
 - Pointer gestures buffer a preview, then commit once on pointer-up: dragging,
   transforming, and drawing each produce one history entry.
-- Name edits commit once on blur; camera navigation, tool choice, and selection
-  are not undoable document edits.
+- Name, color, and numeric edits commit on blur; style selects commit
+  immediately. Camera navigation, tool choice, and selection are not undoable
+  document edits.
+- Locked or hidden layers reject document mutations, including add, update,
+  delete, duplicate, and z-order changes.
 - History is scoped to the open document and reset deliberately on open/create.
 - Autosave is debounced and only runs after successful committed edits (M3).
 
@@ -120,15 +125,23 @@ cloned in `src/models/seed.ts`.
   the viewport with an aged-paper background.
 - Camera transform `{ scale, offsetX, offsetY }` with tested
   `screenToWorld`/`worldToScreen`, cursor-centred wheel zoom, pan (pan tool,
-  middle-drag, or Space-drag), and fit-to-map.
+  left-drag on empty canvas, middle-drag, or Space-drag), and fit-to-map.
 - Document geometry is stored in world coordinates; camera changes never rewrite
   geometry.
-- Current render order: paper, terrain features, draft/selection overlay. The
-  detailed terrain sub-layer order is expanded in M2.
-- Tool state and draft points live in `editorStore`; committed objects live in
-  `terrainStore`. Selection stores feature IDs.
-- Hit testing respects layer lock state; visibility/lock controls arrive in M2.
-- Multi-point tools finish with Enter or double-click; Escape cancels.
+- Current render order: paper, visible terrain features ordered by layer and
+  feature z-index, draft/freehand preview, selection overlay. Hidden layers are
+  omitted from rendering.
+- Area fills support solid, hatch-left, hatch-right, and dot patterns generated
+  as cached canvas tiles; path styles control colour, width, opacity, dash, and
+  line cap.
+- Tool state, the draw mode (freehand or vertices), and draft points live in
+  `editorStore`; committed objects live in `terrainStore`. Selection stores
+  feature IDs.
+- Area and path tools draw freehand by default. Freehand strokes are sampled,
+  simplified with Ramer–Douglas–Peucker, then committed as one edit. Switching
+  the draw mode to vertices instead places points that finish with Enter or
+  double-click; point symbols and labels place immediately.
+- Hit testing and mutation guards respect layer visibility and lock state.
 - Konva `Transformer` provides resize/rotate handles; transforms are flattened
   back to world geometry on commit.
 - Selection handles and guides live outside exported layers.
@@ -170,7 +183,10 @@ editor UI and selection handles.
 M0 covers model validation and seed/phase isolation. M1 adds Vitest coverage for
 camera math, layer ordering/interactivity, terrain history, and feature factories,
 plus Playwright flows for drawing, undo/redo, zoom, dragging, resizing, and
-rotating.
+rotating. M2 adds factory coverage for every area/path/symbol kind, freehand
+simplification tests, store tests for delete/duplicate/z-order/layer guards, and
+Playwright flows for each tool, style editing, layer hiding/locking, and
+freehand drawing.
 
 ## 8. Conventions
 

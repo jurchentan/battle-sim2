@@ -1,6 +1,7 @@
 import type Konva from 'konva';
 import { Line, Rect, Star, Text } from 'react-konva';
 import type { Point, TerrainFeature } from '../models';
+import { getAreaPatternImage } from './areaPattern';
 import { flattenPoints, pointsCenter, pointsEqual } from './geometry';
 
 interface FeatureShapeProps {
@@ -99,6 +100,10 @@ function LineFeature({
     x: point.x - center.x,
     y: point.y - center.y,
   }));
+  const patternImage =
+    closed && style.type === 'area'
+      ? (getAreaPatternImage(style) as unknown as HTMLImageElement | undefined)
+      : undefined;
 
   const commitGeometry = (node: Konva.Node): void => {
     const nextPoints = toWorldPoints(node, relativePoints);
@@ -120,7 +125,9 @@ function LineFeature({
       y={center.y}
       points={flattenPoints(relativePoints)}
       closed={closed}
-      fill={closed && style.type === 'area' ? style.fillColor : undefined}
+      fill={closed && style.type === 'area' && !patternImage ? style.fillColor : undefined}
+      fillPatternImage={patternImage}
+      fillPatternRepeat="repeat"
       stroke={style.strokeColor}
       strokeWidth={style.strokeWidth}
       opacity={style.opacity}

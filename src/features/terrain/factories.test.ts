@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createSeedTerrainMap, terrainMapSchema } from '../../models';
-import { createPolygonFeature, createPolylineFeature, createTextFeature } from './factories';
+import {
+  AREA_STYLES,
+  MARKER_STYLES,
+  PATH_STYLES,
+  createPointFeature,
+  createPolygonFeature,
+  createPolylineFeature,
+  createTextFeature,
+} from './factories';
+import { AREA_KINDS, PATH_KINDS, POINT_KINDS } from './kinds';
 
 describe('terrain feature factories', () => {
   it('creates schema-valid polygon, polyline, and text features', () => {
@@ -29,6 +38,55 @@ describe('terrain feature factories', () => {
     expect(polyline.geometry.type).toBe('polyline');
     expect(text.geometry.type).toBe('textAnchor');
     expect(text.kind).toBe('label');
+  });
+
+  it('creates every area, path, and point kind with matching styles', () => {
+    const map = createSeedTerrainMap();
+    const layer = map.layers[0];
+    if (!layer) throw new Error('Missing seeded layer');
+
+    const features = [
+      ...AREA_KINDS.map((kind) =>
+        createPolygonFeature(
+          map,
+          layer.id,
+          [
+            { x: 10, y: 10 },
+            { x: 40, y: 10 },
+            { x: 25, y: 35 },
+          ],
+          kind,
+        ),
+      ),
+      ...PATH_KINDS.map((kind) =>
+        createPolylineFeature(
+          map,
+          layer.id,
+          [
+            { x: 50, y: 50 },
+            { x: 90, y: 70 },
+          ],
+          kind,
+        ),
+      ),
+      ...POINT_KINDS.map((kind) => createPointFeature(map, layer.id, { x: 120, y: 120 }, kind)),
+    ];
+
+    const result = terrainMapSchema.safeParse({ ...map, features: [...map.features, ...features] });
+    expect(result.success).toBe(true);
+
+    for (const feature of features) {
+      expect(feature.name).toBeTruthy();
+      if (feature.geometry.type === 'polygon') {
+        expect(feature.style).toEqual(AREA_STYLES[feature.kind as keyof typeof AREA_STYLES]);
+      }
+      if (feature.geometry.type === 'polyline') {
+        expect(feature.style).toEqual(PATH_STYLES[feature.kind as keyof typeof PATH_STYLES]);
+      }
+      if (feature.geometry.type === 'point') {
+        expect(feature.style).toEqual(MARKER_STYLES[feature.kind as keyof typeof MARKER_STYLES]);
+      }
+    }
   });
 
   it('assigns an increasing z-index and readable names', () => {

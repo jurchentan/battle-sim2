@@ -2,10 +2,19 @@ import type Konva from 'konva';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Circle, Group, Layer, Line, Rect, Stage } from 'react-konva';
 import {
+  createPointFeature,
   createPolygonFeature,
   createPolylineFeature,
   createTextFeature,
 } from '../features/terrain/factories';
+import {
+  FEATURE_KIND_LABELS,
+  isAreaKind,
+  isDrawKind,
+  isPathKind,
+  isPointKind,
+  type DrawKind,
+} from '../features/terrain/kinds';
 import { isTypingTarget } from '../features/terrain/useEditorShortcuts';
 import type { Point, TerrainMap } from '../models';
 import { useEditorStore } from '../state/editorStore';
@@ -13,13 +22,16 @@ import { useTerrainStore } from '../state/terrainStore';
 import { screenToWorld } from './camera';
 import { useCameraStore } from './cameraStore';
 import { FeatureLayer } from './FeatureLayer';
-import { flattenPoints } from './geometry';
+import { flattenPoints, simplifyPoints } from './geometry';
 
 const PAPER_FILL: Record<TerrainMap['backgroundStyle'], string> = {
   plain: '#fbf8f0',
   'aged-paper': '#f1e6cd',
   parchment: '#eeddc0',
 };
+
+const FREEHAND_TOLERANCE = 2.5;
+const FREEHAND_MIN_DISTANCE = 2;
 
 interface CanvasSize {
   width: number;
@@ -32,15 +44,19 @@ export function CanvasViewport() {
   const cursorReadoutRef = useRef<HTMLSpanElement>(null);
   const panCleanupRef = useRef<(() => void) | null>(null);
   const previousMapIdRef = useRef<string | null>(null);
+  const freehandActiveRef = useRef(false);
 
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [panning, setPanning] = useState(false);
   const [spaceDown, setSpaceDown] = useState(false);
   const [cursorWorld, setCursorWorld] = useState<Point | null>(null);
+  const [freehandPoints, setFreehandPoints] = useState<Point[]>([]);
+  const [activeFreehandKind, setActiveFreehandKind] = useState<DrawKind | null>(null);
 
   const map = useTerrainStore((state) => state.document);
   const addFeature = useTerrainStore((state) => state.addFeature);
   const tool = useEditorStore((state) => state.tool);
+  const drawMode = useEditorStore((state) => state.drawMode);
   const activeLayerId = useEditorStore((state) => state.activeLayerId);
   const draftPoints = useEditorStore((state) => state.draftPoints);
   const setDraftPoints = useEditorStore((state) => state.setDraftPoints);
@@ -133,6 +149,9 @@ export function CanvasViewport() {
       }
 
       if (event.key === 'Escape') {
+        freehandActiveRef.current = false;
+        setActiveFreehandKind(null);
+        setFreehandPoints([]);
         clearDraft();
         setCursorWorld(null);
         setTool('select');
@@ -157,7 +176,15 @@ export function CanvasViewport() {
   }, [clearDraft, selectFeature, setTool]);
 
   const resolveLayerId = useCallback((): string | null => {
-    return activeLayerId ?? map.layers[0]?.id ?? null;
+    if (activeLayerId) {
+      const active = map.layers.find((layer) => layer.id === activeLayerId);
+      if (active) return active.visible && !active.locked ? active.id : null;
+    }
+
+    const fallback = [...map.layers]
+      .sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id))
+      .find((layer) => layer.visible && !layer.locked);
+    return fallback?.id ?? null;
   }, [activeLayerId, map.layers]);
 
   const finishDraft = useCallback(() => {
@@ -165,10 +192,10 @@ export function CanvasViewport() {
     if (!layerId) return;
 
     let feature = null;
-    if (tool === 'polygon' && draftPoints.length >= 3) {
-      feature = createPolygonFeature(map, layerId, draftPoints);
-    } else if (tool === 'polyline' && draftPoints.length >= 2) {
-      feature = createPolylineFeature(map, layerId, draftPoints);
+    if (isAreaKind(tool) && draftPoints.length >= 3) {
+      feature = createPolygonFeature(map, layerId, draftPoints, tool);
+    } else if (isPathKind(tool) && draftPoints.length >= 2) {
+      feature = createPolylineFeature(map, layerId, draftPoints, tool);
     }
 
     if (!feature) return;
@@ -179,6 +206,41 @@ export function CanvasViewport() {
     setTool('select');
     selectFeature(feature.id);
   }, [addFeature, draftPoints, map, resolveLayerId, selectFeature, setDraftPoints, setTool, tool]);
+
+  const finishFreehand = useCallback(() => {
+    if (!freehandActiveRef.current) return;
+    freehandActiveRef.current = false;
+
+    const kind = activeFreehandKind;
+    const rawPoints = freehandPoints;
+    setActiveFreehandKind(null);
+    setFreehandPoints([]);
+    setCursorWorld(null);
+    if (kind === null) return;
+
+    const layerId = resolveLayerId();
+    if (!layerId) return;
+
+    const points = simplifyPoints(rawPoints, FREEHAND_TOLERANCE);
+    let feature = null;
+    if (isAreaKind(kind) && points.length >= 3) {
+      feature = createPolygonFeature(map, layerId, points, kind);
+    } else if (isPathKind(kind) && points.length >= 2) {
+      feature = createPolylineFeature(map, layerId, points, kind);
+    }
+
+    if (!feature) return;
+
+    addFeature(feature);
+    setTool('select');
+    selectFeature(feature.id);
+  }, [activeFreehandKind, addFeature, freehandPoints, map, resolveLayerId, selectFeature, setTool]);
+
+  useEffect(() => {
+    const handleWindowUp = (): void => finishFreehand();
+    window.addEventListener('mouseup', handleWindowUp);
+    return () => window.removeEventListener('mouseup', handleWindowUp);
+  }, [finishFreehand]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -213,14 +275,27 @@ export function CanvasViewport() {
     if (native.button !== 0) return;
 
     if (tool === 'select') {
-      if (event.target === stage) selectFeature(null);
+      if (event.target === stage) {
+        selectFeature(null);
+        native.preventDefault();
+        beginPan(native.clientX, native.clientY);
+      }
       return;
     }
 
     const point = stagePointer();
     if (!point) return;
 
-    if (tool === 'polygon' || tool === 'polyline') {
+    if (isDrawKind(tool) && drawMode === 'freehand') {
+      if (!resolveLayerId()) return;
+      freehandActiveRef.current = true;
+      setActiveFreehandKind(tool);
+      setFreehandPoints([point]);
+      setCursorWorld(point);
+      return;
+    }
+
+    if (isDrawKind(tool) && drawMode === 'vertices') {
       if (native.detail >= 2) {
         finishDraft();
         return;
@@ -230,7 +305,17 @@ export function CanvasViewport() {
       return;
     }
 
-    if (tool === 'text') {
+    if (isPointKind(tool)) {
+      const layerId = resolveLayerId();
+      if (!layerId) return;
+      const feature = createPointFeature(map, layerId, point, tool);
+      addFeature(feature);
+      setTool('select');
+      selectFeature(feature.id);
+      return;
+    }
+
+    if (tool === 'label') {
       const layerId = resolveLayerId();
       if (!layerId) return;
       const feature = createTextFeature(map, layerId, point);
@@ -248,7 +333,17 @@ export function CanvasViewport() {
       cursorReadoutRef.current.textContent = `${Math.round(point.x)}, ${Math.round(point.y)}`;
     }
 
-    if (draftPoints.length > 0) {
+    if (activeFreehandKind !== null) {
+      setFreehandPoints((current) => {
+        const last = current[current.length - 1];
+        if (last && Math.hypot(point.x - last.x, point.y - last.y) < FREEHAND_MIN_DISTANCE) {
+          return current;
+        }
+        return [...current, point];
+      });
+    }
+
+    if (draftPoints.length > 0 || activeFreehandKind !== null) {
       setCursorWorld(point);
     }
   };
@@ -264,6 +359,19 @@ export function CanvasViewport() {
   };
 
   const previewPoints = cursorWorld ? [...draftPoints, cursorWorld] : draftPoints;
+  const freehandPreview =
+    activeFreehandKind !== null
+      ? cursorWorld
+        ? [...freehandPoints, cursorWorld]
+        : freehandPoints
+      : [];
+  const freehandIsArea = activeFreehandKind !== null && isAreaKind(activeFreehandKind);
+  const drawKind = isDrawKind(tool) ? tool : null;
+  const activeLayer = activeLayerId
+    ? map.layers.find((layer) => layer.id === activeLayerId)
+    : undefined;
+  const activeLayerBlocked =
+    activeLayer !== undefined && (!activeLayer.visible || activeLayer.locked);
   const cursor =
     panning || tool === 'pan'
       ? panning
@@ -271,7 +379,7 @@ export function CanvasViewport() {
         : 'grab'
       : spaceDown
         ? 'grab'
-        : tool === 'text'
+        : tool === 'label'
           ? 'text'
           : tool === 'select'
             ? 'default'
@@ -352,8 +460,8 @@ export function CanvasViewport() {
                 <>
                   <Line
                     points={flattenPoints(previewPoints)}
-                    closed={tool === 'polygon' && previewPoints.length >= 3}
-                    fill={tool === 'polygon' ? 'rgba(125, 143, 106, 0.22)' : undefined}
+                    closed={isAreaKind(tool) && previewPoints.length >= 3}
+                    fill={isAreaKind(tool) ? 'rgba(125, 143, 106, 0.22)' : undefined}
                     stroke="#3d4b3f"
                     strokeWidth={2}
                     dash={[8, 5]}
@@ -372,6 +480,19 @@ export function CanvasViewport() {
                   ))}
                 </>
               ) : null}
+
+              {freehandPreview.length > 1 ? (
+                <Line
+                  points={flattenPoints(freehandPreview)}
+                  closed={freehandIsArea && freehandPreview.length >= 3}
+                  fill={freehandIsArea ? 'rgba(125, 143, 106, 0.18)' : undefined}
+                  stroke="#3d4b3f"
+                  strokeWidth={2}
+                  dash={[6, 4]}
+                  lineJoin="round"
+                  lineCap="round"
+                />
+              ) : null}
             </Group>
           </Layer>
         </Stage>
@@ -382,7 +503,13 @@ export function CanvasViewport() {
           World <span ref={cursorReadoutRef}>—</span>
         </span>
         <span className="rounded-md border border-[#cfc3a8] bg-[#f8f2e5]/90 px-2 py-1">
-          Wheel to zoom · Space or middle-drag to pan
+          {activeLayerBlocked
+            ? 'Active layer is hidden or locked'
+            : drawKind !== null && drawMode === 'freehand'
+              ? `Freehand ${FEATURE_KIND_LABELS[drawKind].toLowerCase()} · release to finish`
+              : drawKind !== null
+                ? `${FEATURE_KIND_LABELS[drawKind]} · click to add vertices · Enter to finish`
+                : 'Drag empty canvas to pan · Wheel to zoom'}
         </span>
       </div>
     </div>

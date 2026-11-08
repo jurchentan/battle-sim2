@@ -1,10 +1,11 @@
 # Battle Map Editor — Project Specification
 
-Status: M1 complete (canvas foundation). Source of truth: `Readme.md` (engineering
-specification) plus `Info.md` (product vision). If documents disagree, `Readme.md`
-wins for implementation details. The terrain workspace now supports camera
-navigation, selection, polygon/polyline/text drawing, and undo/redo; expanded
-terrain styling and layer controls remain in M2.
+Status: M2 complete (hand-drawn terrain editor). Source of truth: `Readme.md`
+(engineering specification) plus `Info.md` (product vision). If documents
+disagree, `Readme.md` wins for implementation details. The terrain workspace now
+supports area and path tools, symbols and labels, style editing, layer
+visibility/locking/z-order, object stacking, delete/duplicate, and simplified
+freehand drawing.
 
 ## 1. Product summary
 
@@ -50,7 +51,11 @@ silently mutate existing scenarios.
 - Draw and edit polygons (forest, field, swamp, lake), paths (river, road,
   contour, custom path), point symbols (building, bridge, fortification), and
   text labels.
+- Area and path tools draw freehand by default, with an alternate vertex-placement
+  mode. Freehand samples are simplified before commit.
 - Editable geometry and styles; layers with visibility, locking, and z-order.
+- Object stacking, duplication, and deletion; style controls for fills, hatching,
+  stroke width, opacity, dashes, caps, marker colours, and label typography.
 - Illustrated cartographic look with reusable style presets.
 
 ### Terrain library

@@ -3,21 +3,14 @@ import { pointsCenter } from '../../canvas/geometry';
 import type { Point, TerrainFeature, TerrainMap } from '../../models';
 import { useEditorStore } from '../../state/editorStore';
 import { useTerrainStore } from '../../state/terrainStore';
+import { FeatureStyleEditor } from './FeatureStyleEditor';
+import { FEATURE_KIND_LABELS } from './kinds';
 
-const FEATURE_KIND_LABELS: Record<TerrainFeature['kind'], string> = {
-  forest: 'Forest',
-  field: 'Field',
-  river: 'River',
-  road: 'Road',
-  contour: 'Contour',
-  lake: 'Lake',
-  swamp: 'Swamp',
-  building: 'Building',
-  bridge: 'Bridge',
-  fortification: 'Fortification',
-  label: 'Label',
-  customPath: 'Custom path',
-};
+const actionButtonClass =
+  'rounded-md border border-[#c9bda3] bg-[#f8f2e5] px-2 py-1.5 text-[0.68rem] font-semibold text-[#4a4438] transition-colors hover:border-[#a99a79] hover:bg-[#efe5d2] disabled:cursor-not-allowed disabled:opacity-40';
+
+const dangerButtonClass =
+  'rounded-md border border-[#d3b3a8] bg-[#f9ede8] px-2 py-1.5 text-[0.68rem] font-semibold text-[#8b3a2f] transition-colors hover:border-[#b98a7b] hover:bg-[#f3ddd4]';
 
 function featureCenter(feature: TerrainFeature): Point {
   switch (feature.geometry.type) {
@@ -118,11 +111,32 @@ function DetailRow({ label, value, testId }: { label: string; value: string; tes
   );
 }
 
+function SectionHeading({ children }: { children: string }) {
+  return (
+    <h4 className="text-[0.62rem] font-semibold tracking-[0.14em] text-[#8a7a58] uppercase">
+      {children}
+    </h4>
+  );
+}
+
 export function InspectorPanel({ map }: { map: TerrainMap }) {
   const selectedFeatureId = useEditorStore((state) => state.selectedFeatureId);
+  const selectFeature = useEditorStore((state) => state.selectFeature);
   const updateFeature = useTerrainStore((state) => state.updateFeature);
+  const deleteFeature = useTerrainStore((state) => state.deleteFeature);
+  const duplicateFeature = useTerrainStore((state) => state.duplicateFeature);
+  const moveFeature = useTerrainStore((state) => state.moveFeature);
   const feature = map.features.find((candidate) => candidate.id === selectedFeatureId) ?? null;
   const layer = feature ? map.layers.find((candidate) => candidate.id === feature.layerId) : null;
+
+  const siblings = feature
+    ? map.features
+        .filter((candidate) => candidate.layerId === feature.layerId)
+        .sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id))
+    : [];
+  const siblingIndex = feature
+    ? siblings.findIndex((candidate) => candidate.id === feature.id)
+    : -1;
 
   return (
     <aside
@@ -142,7 +156,10 @@ export function InspectorPanel({ map }: { map: TerrainMap }) {
               <p className="text-[0.62rem] font-semibold tracking-[0.14em] text-[#8a7a58] uppercase">
                 Selected object
               </p>
-              <p className="font-display mt-1 text-lg font-semibold text-[#2f2b23]">
+              <p
+                data-testid="selected-kind"
+                className="font-display mt-1 text-lg font-semibold text-[#2f2b23]"
+              >
                 {FEATURE_KIND_LABELS[feature.kind]}
               </p>
             </div>
@@ -155,33 +172,96 @@ export function InspectorPanel({ map }: { map: TerrainMap }) {
               }
             />
 
-            <dl>
-              <DetailRow label="Layer" value={layer?.name ?? 'Unknown layer'} />
-              <DetailRow
-                label="Position"
-                value={`${Math.round(featureCenter(feature).x)}, ${Math.round(
-                  featureCenter(feature).y,
-                )}`}
-                testId="selected-position"
+            <div className="flex flex-col gap-2.5">
+              <SectionHeading>Style</SectionHeading>
+              <FeatureStyleEditor
+                feature={feature}
+                onChange={(nextFeature) => updateFeature(feature.id, () => nextFeature)}
               />
-              <DetailRow label="Geometry" value={geometrySummary(feature)} />
-              <DetailRow label="Size" value={featureSize(feature)} testId="selected-size" />
-              <DetailRow label="Z-index" value={String(feature.zIndex)} />
-              <DetailRow
-                label="State"
-                value={
-                  layer && (!layer.visible || layer.locked)
-                    ? layer.visible
-                      ? 'Layer locked'
-                      : 'Layer hidden'
-                    : 'Editable'
-                }
-              />
-            </dl>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <SectionHeading>Arrange</SectionHeading>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  className={actionButtonClass}
+                  onClick={() => {
+                    const id = duplicateFeature(feature.id);
+                    if (id) selectFeature(id);
+                  }}
+                >
+                  Duplicate
+                </button>
+                <button
+                  type="button"
+                  className={dangerButtonClass}
+                  onClick={() => {
+                    deleteFeature(feature.id);
+                    selectFeature(null);
+                  }}
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  className={actionButtonClass}
+                  aria-label="Send to back"
+                  onClick={() => moveFeature(feature.id, 'back')}
+                  disabled={siblingIndex <= 0}
+                >
+                  To back
+                </button>
+                <button
+                  type="button"
+                  className={actionButtonClass}
+                  aria-label="Bring to front"
+                  onClick={() => moveFeature(feature.id, 'front')}
+                  disabled={siblingIndex === -1 || siblingIndex >= siblings.length - 1}
+                >
+                  To front
+                </button>
+                <button
+                  type="button"
+                  className={actionButtonClass}
+                  aria-label="Send backward"
+                  onClick={() => moveFeature(feature.id, 'backward')}
+                  disabled={siblingIndex <= 0}
+                >
+                  Backward
+                </button>
+                <button
+                  type="button"
+                  className={actionButtonClass}
+                  aria-label="Bring forward"
+                  onClick={() => moveFeature(feature.id, 'forward')}
+                  disabled={siblingIndex === -1 || siblingIndex >= siblings.length - 1}
+                >
+                  Forward
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <SectionHeading>Details</SectionHeading>
+              <dl className="mt-1">
+                <DetailRow label="Layer" value={layer?.name ?? 'Unknown layer'} />
+                <DetailRow
+                  label="Position"
+                  value={`${Math.round(featureCenter(feature).x)}, ${Math.round(
+                    featureCenter(feature).y,
+                  )}`}
+                  testId="selected-position"
+                />
+                <DetailRow label="Geometry" value={geometrySummary(feature)} />
+                <DetailRow label="Size" value={featureSize(feature)} testId="selected-size" />
+                <DetailRow label="Z-index" value={String(feature.zIndex)} />
+              </dl>
+            </div>
 
             <p className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-2.5 py-2 text-[0.68rem] leading-4 text-[#7c715c]">
-              Drag the object to move it. Use the selection handles to resize or rotate. Changes are
-              committed as a single undo step.
+              Drag to move, then use the handles to resize or rotate. Ctrl/Cmd+D duplicates, Delete
+              removes, and Ctrl/Cmd+] or [ changes stacking.
             </p>
           </div>
         ) : (
@@ -202,8 +282,8 @@ export function InspectorPanel({ map }: { map: TerrainMap }) {
             </dl>
 
             <p className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-2.5 py-2 text-[0.68rem] leading-4 text-[#7c715c]">
-              Select an object on the canvas to inspect it, or choose a drawing tool to add a
-              polygon, path, or text label.
+              Choose an area, path, symbol, or label tool to draw. Select an object to edit its
+              geometry and style. Hidden and locked layers cannot be edited.
             </p>
           </div>
         )}

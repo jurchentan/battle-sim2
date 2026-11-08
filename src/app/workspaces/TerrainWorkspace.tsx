@@ -25,9 +25,17 @@ export function TerrainWorkspace() {
 
   useEffect(() => {
     if (!selectedFeatureId) return;
-    if (map.features.some((feature) => feature.id === selectedFeatureId)) return;
-    selectFeature(null);
-  }, [map.features, selectFeature, selectedFeatureId]);
+    const feature = map.features.find((candidate) => candidate.id === selectedFeatureId);
+    if (!feature) {
+      selectFeature(null);
+      return;
+    }
+
+    const layer = map.layers.find((candidate) => candidate.id === feature.layerId);
+    if (!layer || !layer.visible || layer.locked) {
+      selectFeature(null);
+    }
+  }, [map.features, map.layers, selectFeature, selectedFeatureId]);
 
   return (
     <section

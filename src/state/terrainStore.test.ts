@@ -141,4 +141,130 @@ describe('terrain document store', () => {
     expect(state.future).toHaveLength(0);
     expect(state.document).not.toBe(replacement);
   });
+
+  it('deletes a feature as one undoable edit', () => {
+    const map = useTerrainStore.getState().document;
+    const feature = map.features.find((candidate) => candidate.kind === 'forest');
+    if (!feature) throw new Error('Missing seeded forest');
+
+    useTerrainStore.getState().deleteFeature(feature.id);
+
+    const afterDelete = useTerrainStore.getState();
+    expect(afterDelete.document.features.some((candidate) => candidate.id === feature.id)).toBe(
+      false,
+    );
+    expect(afterDelete.past).toHaveLength(1);
+
+    useTerrainStore.getState().undo();
+
+    expect(
+      useTerrainStore.getState().document.features.some((candidate) => candidate.id === feature.id),
+    ).toBe(true);
+  });
+
+  it('duplicates a feature with a new id, offset geometry, and top z-index', () => {
+    const map = useTerrainStore.getState().document;
+    const feature = map.features.find((candidate) => candidate.kind === 'forest');
+    if (!feature || feature.geometry.type !== 'polygon') {
+      throw new Error('Missing seeded forest');
+    }
+    const highestZ = Math.max(...map.features.map((candidate) => candidate.zIndex));
+
+    const duplicateId = useTerrainStore.getState().duplicateFeature(feature.id);
+
+    const state = useTerrainStore.getState();
+    const duplicate = state.document.features.find((candidate) => candidate.id === duplicateId);
+    expect(duplicateId).not.toBe(feature.id);
+    expect(duplicate).toBeDefined();
+    expect(duplicate?.zIndex).toBe(highestZ + 1);
+    expect(duplicate?.name).toContain('copy');
+    expect(state.past).toHaveLength(1);
+
+    if (duplicate?.geometry.type === 'polygon') {
+      expect(duplicate.geometry.points[0]).toEqual({
+        x: feature.geometry.points[0].x + 24,
+        y: feature.geometry.points[0].y + 24,
+      });
+    }
+  });
+
+  it('moves a feature through the z-order of its layer', () => {
+    const map = useTerrainStore.getState().document;
+    const layer = map.layers.find((candidate) => candidate.id === 'layer-areas');
+    if (!layer) throw new Error('Missing seeded area layer');
+    const siblings = map.features
+      .filter((candidate) => candidate.layerId === layer.id)
+      .sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id));
+    const first = siblings[0];
+    if (!first) throw new Error('Missing seeded area feature');
+
+    useTerrainStore.getState().moveFeature(first.id, 'front');
+
+    const afterMove = useTerrainStore
+      .getState()
+      .document.features.filter((candidate) => candidate.layerId === layer.id)
+      .sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id));
+    expect(afterMove.at(-1)?.id).toBe(first.id);
+    expect(useTerrainStore.getState().past).toHaveLength(1);
+
+    useTerrainStore.getState().undo();
+
+    const restored = useTerrainStore
+      .getState()
+      .document.features.filter((candidate) => candidate.layerId === layer.id)
+      .sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id));
+    expect(restored[0]?.id).toBe(first.id);
+  });
+
+  it('rejects edits and additions while the target layer is hidden or locked', () => {
+    const map = useTerrainStore.getState().document;
+    const layer = map.layers[0];
+    if (!layer) throw new Error('Missing seeded layer');
+    const feature = map.features.find((candidate) => candidate.layerId === layer.id);
+    if (!feature) throw new Error('Missing seeded layer feature');
+
+    useTerrainStore.getState().setLayerVisible(layer.id, false);
+    const hiddenDocument = useTerrainStore.getState().document;
+    useTerrainStore.getState().updateFeature(feature.id, (current) => ({
+      ...current,
+      name: 'Should not apply',
+    }));
+    expect(useTerrainStore.getState().document).toBe(hiddenDocument);
+
+    useTerrainStore.getState().setLayerVisible(layer.id, true);
+    useTerrainStore.getState().setLayerLocked(layer.id, true);
+    const lockedDocument = useTerrainStore.getState().document;
+    useTerrainStore.getState().addFeature(makeFeature('feature-locked', lockedDocument));
+    expect(useTerrainStore.getState().document).toBe(lockedDocument);
+    expect(
+      useTerrainStore
+        .getState()
+        .document.features.some((candidate) => candidate.id === 'feature-locked'),
+    ).toBe(false);
+  });
+
+  it('reorders layers and keeps feature references intact', () => {
+    const map = useTerrainStore.getState().document;
+    const sorted = [...map.layers].sort((a, b) => a.zIndex - b.zIndex);
+    const top = sorted.at(-1);
+    if (!top) throw new Error('Missing seeded top layer');
+
+    const before = sorted.map((layer) => layer.id);
+    useTerrainStore.getState().moveLayer(top.id, 'backward');
+
+    const layers = [...useTerrainStore.getState().document.layers].sort(
+      (a, b) => a.zIndex - b.zIndex,
+    );
+    const after = layers.map((layer) => layer.id);
+    expect(after).not.toEqual(before);
+    expect(after.indexOf(top.id)).toBe(before.indexOf(top.id) - 1);
+    expect(terrainMapSchema.safeParse(useTerrainStore.getState().document).success).toBe(true);
+
+    useTerrainStore.getState().undo();
+
+    const restored = [...useTerrainStore.getState().document.layers].sort(
+      (a, b) => a.zIndex - b.zIndex,
+    );
+    expect(restored.map((layer) => layer.id)).toEqual(before);
+  });
 });

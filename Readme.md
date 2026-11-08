@@ -39,7 +39,7 @@ Non-negotiable scope:
 - Right properties inspector: contextual fields for selected terrain object, brigade, commander, annotation, or phase.
 - Bottom (scenario mode): ordered phase timeline with add, duplicate, rename, delete, and reorder controls.
 - Clear active mode indication so terrain cannot accidentally be edited while dragging a unit.
-  Useful keyboard shortcuts: V select, H pan (or hold Space), Delete delete selected, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo, Ctrl/Cmd+S save current document, Escape cancel tool operation. Shortcuts should not fire while typing into inputs.
+  Useful keyboard shortcuts: V select, H pan (or drag empty canvas), Delete delete selected, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo, Ctrl/Cmd+S save current document, Escape cancel tool operation. Shortcuts should not fire while typing into inputs.
 
 4. Core domain model
    Keep reusable documents separate. IDs are UUIDs (or equivalent stable IDs); never use array indices as identities.

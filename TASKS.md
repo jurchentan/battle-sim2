@@ -36,12 +36,12 @@ rejected.
 Gate: draw/select/move/resize/rotate; undo/redo; zoom/pan; exact world coordinates
 restored after navigation.
 
-## M2 — Complete hand-drawn terrain editor
+## M2 — Complete hand-drawn terrain editor (complete)
 
-- [ ] Forest/field/water polygons; road/river/contour paths
-- [ ] Buildings, bridges, labels, style controls
-- [ ] Layer locking, hiding, z-order, delete/duplicate
-- [ ] Freehand drawing with point simplification
+- [x] Forest/field/water polygons; road/river/contour paths
+- [x] Buildings, bridges, labels, style controls
+- [x] Layer locking, hiding, z-order, delete/duplicate
+- [x] Freehand drawing with point simplification
 
 Gate: recreate a stylized map with wooded regions, two streams, roads, contours,
 and a village; every object remains individually editable.
