@@ -208,6 +208,28 @@ describe('army roster validation', () => {
     expectFailure(armyRosterSchema.safeParse(roster), 'same faction');
   });
 
+  it('rejects units at or above their parent echelon', () => {
+    const roster = createSeedRoster();
+    roster.units.push({
+      ...getUnit(roster, 'unit-north-corps'),
+      id: 'unit-north-corps-2',
+      customName: 'II Corps',
+      parentUnitId: 'unit-north-division',
+    });
+
+    expectFailure(armyRosterSchema.safeParse(roster), 'must be below its parent');
+
+    const equalEchelon = createSeedRoster();
+    equalEchelon.units.push({
+      ...getUnit(equalEchelon, 'unit-north-division'),
+      id: 'unit-north-division-2',
+      customName: 'Holt Division',
+      parentUnitId: 'unit-north-division',
+    });
+
+    expectFailure(armyRosterSchema.safeParse(equalEchelon), 'must be below its parent');
+  });
+
   it('rejects dangling faction references', () => {
     const factionRoster = createSeedRoster();
     getUnit(factionRoster, 'unit-north-brigade-1').factionId = 'faction-ghost';
@@ -221,10 +243,12 @@ describe('army roster validation', () => {
     expect(armyRosterSchema.safeParse(roster).success).toBe(false);
   });
 
-  it('normalizes legacy unit names and commander references', () => {
+  it('normalizes legacy unit names, commander references, and naming modes', () => {
     const legacy = JSON.parse(JSON.stringify(createSeedRoster())) as Record<string, unknown>;
     legacy.commanders = [{ id: 'commander-legacy', name: 'Legacy Commander', rank: 'General' }];
-    delete (legacy.factions as Record<string, unknown>[])[0]!.namingMode;
+    const factions = legacy.factions as Record<string, unknown>[];
+    delete factions[0]!.namingModes;
+    factions[0]!.namingMode = 'numeric';
 
     const units = legacy.units as Record<string, unknown>[];
     const first = units[0]!;
@@ -239,8 +263,57 @@ describe('army roster validation', () => {
 
     expect(result.data.units[0]?.customName).toBe('Legacy Army');
     expect(result.data.units[0]?.commander).toBe('Legacy Commander');
-    expect(result.data.factions[0]?.namingMode).toBe('numeric');
+    expect(result.data.factions[0]?.namingModes.army).toBe('numeric-universal');
+    expect(result.data.factions[0]?.namingModes.brigade).toBe('numeric-universal');
     expect('commanders' in result.data).toBe(false);
+  });
+
+  it('maps the old faction naming mode onto every echelon', () => {
+    const legacy = JSON.parse(JSON.stringify(createSeedRoster())) as Record<string, unknown>;
+    const faction = (legacy.factions as Record<string, unknown>[])[0]!;
+    delete faction.namingModes;
+    faction.namingMode = 'commander';
+
+    const result = armyRosterSchema.safeParse(legacy);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.factions[0]?.namingModes).toEqual({
+      army: 'commander',
+      corps: 'commander',
+      division: 'commander',
+      brigade: 'commander',
+      regiment: 'commander',
+      other: 'commander',
+    });
+  });
+
+  it('fills missing faction defaults and preserves per-echelon overrides', () => {
+    const roster = createSeedRoster();
+    const north = roster.factions[0]!;
+    north.defaultStrengths.infantry.brigade = 2000;
+    north.namingModes = {
+      ...north.namingModes,
+      division: 'commander',
+      brigade: 'numeric-universal',
+    };
+
+    const result = armyRosterSchema.safeParse(roster);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.factions[0]?.defaultStrengths.infantry.brigade).toBe(2000);
+    expect(result.data.factions[0]?.namingModes.division).toBe('commander');
+    expect(result.data.factions[0]?.namingModes.brigade).toBe('numeric-universal');
+
+    const legacy = JSON.parse(JSON.stringify(createSeedRoster())) as Record<string, unknown>;
+    const faction = (legacy.factions as Record<string, unknown>[])[0]!;
+    delete faction.defaultStrengths;
+    delete faction.namingModes;
+
+    const legacyResult = armyRosterSchema.safeParse(legacy);
+    expect(legacyResult.success).toBe(true);
+    if (!legacyResult.success) return;
+    expect(legacyResult.data.factions[0]?.defaultStrengths.infantry.brigade).toBe(1500);
+    expect(legacyResult.data.factions[0]?.namingModes.army).toBe('numeric-universal');
   });
 });
 

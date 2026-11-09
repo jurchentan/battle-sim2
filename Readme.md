@@ -58,7 +58,7 @@ Non-negotiable scope:
    }
    kind in v1: forest | field | river | road | contour | lake | swamp | building | bridge | fortification | label | customPath. Geometries must be discriminated unions, e.g. point, polyline, polygon, or text anchor, with typed styles. Do not store Konva objects in documents. Positions are document coordinates, never zoom-adjusted screen pixels. Preserve exact points when saving/loading.
    4.2 Armies and order of battle
-   Faction { id, name, color, labelColor?, namingMode: 'numeric'|'commander', notes? }
+   Faction { id, name, color, labelColor?, namingModes: { army?, corps?, division?, brigade?, regiment?, other?: 'numeric-universal'|'numeric-local'|'commander' }, defaultStrengths: { infantry, cavalry, artillery }, notes? }
    UnitDefinition {
    id, factionId, customName?,
    echelon: 'army'|'corps'|'division'|'brigade'|'regiment'|'other',
@@ -69,7 +69,7 @@ Non-negotiable scope:
    defaultSymbolStyle, notes?
    }
    ArmyRoster { schemaVersion, id, name, factions, units, createdAt, updatedAt }
-   No assumptions about real-world armies or command structures; allow custom names and other echelons. Unit display names are generated per faction and echelon, either numerically (`1st Brigade`) or from the free-text commander (`Johnsons Brigade`); a non-empty `customName` overrides the generated name. Parent and child must belong to same faction by default. Block cycles in parentUnitId (including indirect cycles). Validate duplicate IDs, dangling parent references, and negative strength. Brigade is default deployable echelon, but the renderer should not forbid representing divisions or other units.
+   No assumptions about real-world armies or command structures; allow custom names and other echelons. Unit display names are generated per faction and echelon: universal numbering counts every peer in the faction (`1st Brigade`, `2nd Brigade`), local numbering restarts inside each parent formation so every division has its own `1st Brigade`, `2nd Brigade`, and so on, and commander style uses the free-text commander (`Johnsons Brigade`). Each echelon can choose its own style, so a faction can use commander-style divisions and numbered brigades at the same time. A non-empty `customName` overrides the generated name, and custom-named units do not consume numbers. Commander style falls back to universal numbering when no commander is set. Factions also carry per-echelon default strengths for infantry, cavalry, and artillery; these fill the initial strength of new units at or below the roster's smallest deployable echelon and are editable in the faction form. Parent and child must belong to same faction by default, and a subordinate must sit strictly below its parent (corps under army, division under corps, and so on), so higher formations cannot be nested under lower ones. Block cycles in parentUnitId (including indirect cycles). Validate duplicate IDs, dangling parent references, and negative strength. Brigade is default deployable echelon, but the renderer should not forbid representing divisions or other units.
    4.3 Scenario and timeline
    BattleScenario {
    schemaVersion, id, name, description?,

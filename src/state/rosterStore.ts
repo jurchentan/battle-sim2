@@ -3,9 +3,12 @@ import {
   armyRosterSchema,
   createId,
   createSeedRoster,
+  defaultFactionNamingModes,
+  defaultFactionStrengths,
   type ArmyRoster,
   type Faction,
-  type FactionNamingMode,
+  type FactionDefaultStrengths,
+  type FactionNamingModes,
   type SymbolStyle,
   type UnitDefinition,
   type UnitEchelon,
@@ -16,6 +19,8 @@ import {
   canHaveSubordinates,
   defaultSymbolStyle,
   defaultUnitStrength,
+  ECHELON_LABELS,
+  echelonHierarchyError,
   findUnit,
   hasSubordinates,
   normalizeRosterDocument,
@@ -61,7 +66,8 @@ export interface NewFactionInput {
   name: string;
   color: string;
   labelColor?: string;
-  namingMode?: FactionNamingMode;
+  namingModes?: FactionNamingModes;
+  defaultStrengths?: FactionDefaultStrengths;
   notes?: string;
 }
 
@@ -154,7 +160,8 @@ export const useRosterStore = create<RosterEditorStore>()((set, get) => ({
       name,
       color: input.color,
       ...(input.labelColor ? { labelColor: input.labelColor } : {}),
-      namingMode: input.namingMode ?? 'numeric',
+      namingModes: structuredClone(input.namingModes ?? defaultFactionNamingModes()),
+      defaultStrengths: structuredClone(input.defaultStrengths ?? defaultFactionStrengths()),
       ...(input.notes ? { notes: input.notes } : {}),
     };
     const next = commit(state, {
@@ -238,6 +245,8 @@ export const useRosterStore = create<RosterEditorStore>()((set, get) => ({
       if (parent.factionId !== input.factionId) {
         return { ok: false, error: 'The parent formation must belong to the same faction.' };
       }
+      const hierarchyError = echelonHierarchyError(input.echelon, parent.echelon);
+      if (hierarchyError) return { ok: false, error: hierarchyError };
       if (!canHaveSubordinates(state.document, parent)) {
         return {
           ok: false,
@@ -250,7 +259,12 @@ export const useRosterStore = create<RosterEditorStore>()((set, get) => ({
     const commander = input.commander?.trim();
     const initialStrength =
       input.initialStrength === undefined
-        ? defaultUnitStrength(input.unitType, input.echelon, state.document.smallestUnitEchelon)
+        ? defaultUnitStrength(
+            faction,
+            input.unitType,
+            input.echelon,
+            state.document.smallestUnitEchelon,
+          )
         : input.initialStrength;
 
     const unit: UnitDefinition = {
@@ -288,8 +302,25 @@ export const useRosterStore = create<RosterEditorStore>()((set, get) => ({
     if (!current) return { ok: false, error: 'The unit could not be found.' };
 
     if (patch.parentUnitId !== undefined) {
-      const parentError = reparentError(state.document, unitId, patch.parentUnitId);
+      const parentError = reparentError(
+        state.document,
+        unitId,
+        patch.parentUnitId,
+        patch.echelon ?? current.echelon,
+      );
       if (parentError) return { ok: false, error: parentError };
+    }
+
+    const nextEchelon = patch.echelon ?? current.echelon;
+    const nextParentId =
+      patch.parentUnitId !== undefined ? patch.parentUnitId : current.parentUnitId;
+    if (nextParentId !== null) {
+      const parent = findUnit(state.document, nextParentId);
+      if (!parent) {
+        return { ok: false, error: 'The selected parent formation could not be found.' };
+      }
+      const hierarchyError = echelonHierarchyError(nextEchelon, parent.echelon);
+      if (hierarchyError) return { ok: false, error: hierarchyError };
     }
 
     if (
@@ -301,6 +332,20 @@ export const useRosterStore = create<RosterEditorStore>()((set, get) => ({
         ok: false,
         error: `${unitDisplayName(state.document, current)} has subordinates and cannot become a smallest unit. Move or delete them first.`,
       };
+    }
+
+    if (patch.echelon !== undefined) {
+      const blockedChild = state.document.units.find(
+        (candidate) =>
+          candidate.parentUnitId === unitId &&
+          echelonHierarchyError(candidate.echelon, nextEchelon) !== null,
+      );
+      if (blockedChild) {
+        return {
+          ok: false,
+          error: `${unitDisplayName(state.document, current)} cannot become a ${ECHELON_LABELS[nextEchelon]} while it has ${ECHELON_LABELS[blockedChild.echelon]} subordinates. Move or delete them first.`,
+        };
+      }
     }
 
     const normalized: UnitPatch = { ...patch };

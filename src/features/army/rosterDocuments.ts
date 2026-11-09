@@ -3,6 +3,7 @@ import {
   createId,
   SCHEMA_VERSION,
   type ArmyRoster,
+  type Faction,
   type FactionNamingMode,
   type SymbolStyle,
   type UnitDefinition,
@@ -34,58 +35,46 @@ const DYNAMIC_ECHELON_LABELS: Record<UnitEchelon, string> = {
   other: 'Formation',
 };
 
-/**
- * Default starting strength for new strength-bearing units. Values only apply
- * at or below the roster's smallest-unit echelon; formations above it derive
- * their strength from subordinates. "Other" unit types stay blank.
- */
-export const DEFAULT_UNIT_STRENGTHS: Record<UnitType, Record<UnitEchelon, number>> = {
-  infantry: {
-    army: 20000,
-    corps: 10000,
-    division: 5000,
-    brigade: 1500,
-    regiment: 500,
-    other: 500,
-  },
-  cavalry: {
-    army: 8000,
-    corps: 4000,
-    division: 2000,
-    brigade: 800,
-    regiment: 300,
-    other: 300,
-  },
-  artillery: {
-    army: 3000,
-    corps: 1500,
-    division: 800,
-    brigade: 300,
-    regiment: 100,
-    other: 100,
-  },
-  other: {
-    army: 0,
-    corps: 0,
-    division: 0,
-    brigade: 0,
-    regiment: 0,
-    other: 0,
-  },
-};
-
 export function echelonRank(echelon: UnitEchelon): number {
   return ECHELON_ORDER.indexOf(echelon);
 }
 
+/**
+ * A subordinate must sit strictly below its parent: corps under army, division
+ * under corps, and so on. `other` is the deepest echelon, so it can be a leaf
+ * under any regular formation but can never be a parent.
+ */
+export function canEchelonBeSubordinateOf(
+  childEchelon: UnitEchelon,
+  parentEchelon: UnitEchelon,
+): boolean {
+  return echelonRank(childEchelon) > echelonRank(parentEchelon);
+}
+
+/** Returns a human-readable hierarchy error, or null when the pairing is valid. */
+export function echelonHierarchyError(
+  childEchelon: UnitEchelon,
+  parentEchelon: UnitEchelon,
+): string | null {
+  if (canEchelonBeSubordinateOf(childEchelon, parentEchelon)) return null;
+  return `A ${ECHELON_LABELS[childEchelon]} cannot be placed under a ${ECHELON_LABELS[parentEchelon]}; subordinates must be lower in the hierarchy.`;
+}
+
+/**
+ * Default starting strength for a new strength-bearing unit, taken from the
+ * faction's own defaults. Values only apply at or below the roster's
+ * smallest-unit echelon; formations above it derive strength from subordinates.
+ * "Other" unit types stay blank.
+ */
 export function defaultUnitStrength(
+  faction: Faction | undefined,
   unitType: UnitType,
   echelon: UnitEchelon,
   smallestUnitEchelon: UnitEchelon,
 ): number | null {
   if (unitType === 'other') return null;
   if (echelonRank(echelon) < echelonRank(smallestUnitEchelon)) return null;
-  return DEFAULT_UNIT_STRENGTHS[unitType][echelon];
+  return faction?.defaultStrengths[unitType][echelon] ?? null;
 }
 
 export function ordinalLabel(value: number): string {
@@ -270,15 +259,28 @@ export function findUnit(roster: ArmyRoster, unitId: string): UnitDefinition | u
   return roster.units.find((unit) => unit.id === unitId);
 }
 
-export function factionNamingMode(roster: ArmyRoster, factionId: string): FactionNamingMode {
-  return roster.factions.find((faction) => faction.id === factionId)?.namingMode ?? 'numeric';
+export function factionNamingMode(
+  roster: ArmyRoster,
+  factionId: string,
+  echelon: UnitEchelon,
+): FactionNamingMode {
+  return (
+    roster.factions.find((faction) => faction.id === factionId)?.namingModes?.[echelon] ??
+    'numeric-universal'
+  );
+}
+
+function isLocalNumbering(mode: FactionNamingMode): boolean {
+  return mode === 'numeric-local';
 }
 
 function numericOrdinalFor(roster: ArmyRoster, unit: UnitDefinition): number {
+  const localNumbering = isLocalNumbering(factionNamingMode(roster, unit.factionId, unit.echelon));
   const peers = roster.units.filter(
     (candidate) =>
       candidate.factionId === unit.factionId &&
       candidate.echelon === unit.echelon &&
+      (!localNumbering || candidate.parentUnitId === unit.parentUnitId) &&
       !candidate.customName?.trim(),
   );
   return Math.max(1, peers.findIndex((candidate) => candidate.id === unit.id) + 1);
@@ -291,7 +293,10 @@ function commanderStyleName(commander: string, echelon: UnitEchelon): string {
 }
 
 export function unitDynamicName(roster: ArmyRoster, unit: UnitDefinition): string {
-  if (factionNamingMode(roster, unit.factionId) === 'commander' && unit.commander?.trim()) {
+  if (
+    factionNamingMode(roster, unit.factionId, unit.echelon) === 'commander' &&
+    unit.commander?.trim()
+  ) {
     return commanderStyleName(unit.commander, unit.echelon);
   }
 
@@ -309,6 +314,7 @@ export function draftUnitDisplayName(
   input: {
     factionId: string;
     echelon: UnitEchelon;
+    parentUnitId: string | null;
     commander?: string;
     customName?: string;
   },
@@ -316,14 +322,17 @@ export function draftUnitDisplayName(
   const customName = input.customName?.trim();
   if (customName) return customName;
 
-  if (factionNamingMode(roster, input.factionId) === 'commander' && input.commander?.trim()) {
+  const mode = factionNamingMode(roster, input.factionId, input.echelon);
+  if (mode === 'commander' && input.commander?.trim()) {
     return commanderStyleName(input.commander, input.echelon);
   }
 
+  const localNumbering = isLocalNumbering(mode);
   const peerCount = roster.units.filter(
     (unit) =>
       unit.factionId === input.factionId &&
       unit.echelon === input.echelon &&
+      (!localNumbering || unit.parentUnitId === input.parentUnitId) &&
       !unit.customName?.trim(),
   ).length;
 
@@ -398,6 +407,7 @@ export function reparentError(
   roster: ArmyRoster,
   unitId: string,
   parentUnitId: string | null,
+  childEchelon?: UnitEchelon,
 ): string | null {
   if (parentUnitId === null) return null;
   if (parentUnitId === unitId) return 'A unit cannot be its own parent.';
@@ -416,6 +426,9 @@ export function reparentError(
     return 'That parent would create a cycle in the chain of command.';
   }
 
+  const hierarchyError = echelonHierarchyError(childEchelon ?? unit.echelon, parent.echelon);
+  if (hierarchyError) return hierarchyError;
+
   if (!canHaveSubordinates(roster, parent)) {
     return `${unitDisplayName(roster, parent)} is a ${
       ECHELON_LABELS[parent.echelon]
@@ -426,12 +439,16 @@ export function reparentError(
 }
 
 export function eligibleParentUnits(roster: ArmyRoster, unitId: string): UnitDefinition[] {
+  const unit = findUnit(roster, unitId);
+  if (!unit) return [];
+
   const blocked = descendantUnitIds(roster, unitId);
   blocked.add(unitId);
   return roster.units
-    .filter((unit) => !blocked.has(unit.id))
-    .filter((unit) => unit.factionId === findUnit(roster, unitId)?.factionId)
-    .filter((unit) => canHaveSubordinates(roster, unit))
+    .filter((candidate) => !blocked.has(candidate.id))
+    .filter((candidate) => candidate.factionId === unit.factionId)
+    .filter((candidate) => canHaveSubordinates(roster, candidate))
+    .filter((candidate) => canEchelonBeSubordinateOf(unit.echelon, candidate.echelon))
     .sort((a, b) => {
       const depthDelta = unitDepth(roster, a.id) - unitDepth(roster, b.id);
       if (depthDelta !== 0) return depthDelta;

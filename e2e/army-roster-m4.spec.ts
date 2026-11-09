@@ -35,12 +35,12 @@ async function addUnit(page: Page, unit: UnitSeed): Promise<void> {
     label: unit.faction,
   });
   await form.getByRole('combobox', { name: 'Unit type', exact: true }).selectOption(unit.type);
+  await form.getByRole('combobox', { name: 'Echelon', exact: true }).selectOption(unit.echelon);
   if (unit.parent) {
     await form.getByRole('combobox', { name: /^Parent formation/ }).selectOption({
       label: unit.parent,
     });
   }
-  await form.getByRole('combobox', { name: 'Echelon', exact: true }).selectOption(unit.echelon);
   if (unit.strength !== undefined) {
     await form.getByLabel('Initial strength').fill(String(unit.strength));
   }

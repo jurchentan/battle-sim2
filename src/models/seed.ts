@@ -1,10 +1,13 @@
 import {
   SCHEMA_VERSION,
+  defaultFactionNamingModes,
+  defaultFactionStrengths,
   type ArmyRoster,
   type BattleAnnotation,
   type BattlePhase,
   type BattleScenario,
   type Faction,
+  type FactionNamingModes,
   type SymbolStyle,
   type TerrainFeature,
   type TerrainLayer,
@@ -265,20 +268,31 @@ export function createSeedTerrainMap(): TerrainMap {
   };
 }
 
+const commanderNamingModes: FactionNamingModes = {
+  army: 'commander',
+  corps: 'commander',
+  division: 'commander',
+  brigade: 'commander',
+  regiment: 'commander',
+  other: 'commander',
+};
+
 const factions: Faction[] = [
   {
     id: 'faction-north',
     name: 'Northern League',
     color: NORTH_COLOR,
     labelColor: NORTH_LABEL_COLOR,
-    namingMode: 'numeric',
+    namingModes: defaultFactionNamingModes(),
+    defaultStrengths: defaultFactionStrengths(),
   },
   {
     id: 'faction-south',
     name: 'Southern Crown',
     color: SOUTH_COLOR,
     labelColor: SOUTH_LABEL_COLOR,
-    namingMode: 'commander',
+    namingModes: commanderNamingModes,
+    defaultStrengths: defaultFactionStrengths(),
   },
 ];
 

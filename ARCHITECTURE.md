@@ -87,23 +87,34 @@ cloned in `src/models/seed.ts`.
   expose a derived total of their subordinate units. Legacy rosters without the
   field infer the deepest regular echelon on load so previously saved regiments
   keep working.
-- Factions have a `namingMode`. `numeric` generates names such as `1st Brigade`,
-  scoped by faction and echelon; `commander` generates names such as
-  `Johnsons Brigade` from the unit's free-text commander and falls back to
-  numeric when no commander is set. Custom-named units do not consume numbers.
+- Factions have per-echelon `namingModes`. `numeric-universal` generates names
+  such as `1st Brigade`, scoped by faction and echelon; `numeric-local` restarts
+  the sequence within each parent formation, so every division has its own 1st,
+  2nd, and so on; `commander` generates names such as `Johnsons Brigade` from the
+  unit's free-text commander and falls back to universal numbering when no
+  commander is set. Each echelon can use a different mode, so a faction can have
+  commander-style divisions and numbered brigades. Custom-named units do not
+  consume numbers in either numeric mode.
 - Units carry `factionId`, optional `customName`, optional free-text
   `commander`, `parentUnitId`, `echelon`, `unitType`, initial strength, and a
   default symbol style. A non-empty `customName` overrides generated naming.
-- `defaultUnitStrength` provides standard strengths for infantry, cavalry, and
-  artillery at every echelon. New units receive them only at or below the
+- The hierarchy is strictly ordered: a subordinate must sit below its parent
+  (`corps` under `army`, `division` under `corps`, and so on). Equal or inverted
+  pairings are rejected by both the schema and the store, so an army can never
+  be added under a corps and a division can never be added under a brigade.
+  `other` is a leaf that can only appear below a regular formation.
+- Factions own their `defaultStrengths` table for infantry, cavalry, and
+  artillery at every echelon, editable in the faction form. `defaultUnitStrength`
+  reads the unit's faction, and new units receive the value only at or below the
   smallest echelon; `other` has no default.
 - `armyRosterSchema` preprocesses legacy rosters: an old unit `name` becomes
   `customName`, `commanderId` resolves against the old `commanders` array into a
-  free-text `commander`, missing faction naming modes default to numeric, and
-  the old `commanders` array is dropped.
+  free-text `commander`, an old faction-level `namingMode` is copied onto every
+  echelon, missing naming modes and strength tables receive built-in defaults,
+  and the old `commanders` array is dropped.
 - Validation rejects duplicate IDs, unknown factions, dangling parents,
-  cross-faction parents, negative strength, and direct or indirect hierarchy
-  cycles.
+  cross-faction parents, negative strength, equal or inverted echelon pairings,
+  and direct or indirect hierarchy cycles.
 - The roster UI groups units by faction in an order-of-battle tree and edits the
   selected formation in place. Parent candidates exclude the unit, its
   descendants, other factions, and units at or below the smallest echelon; the
@@ -273,8 +284,9 @@ canvas expansion with undo/redo and reload persistence, outside-canvas
 show/grey/hide modes, reverting to recorded original bounds, and maximum-size
 rejection. M4 adds roster document/store/file tests for hierarchy construction,
 safe reparenting, cycle and cross-faction rejection, faction deletion guards,
-per-echelon default strengths, generated numeric and commander-style names,
-custom-name precedence, free-text commander edits, legacy roster normalization,
+per-echelon default strengths, generated universal/local numeric and
+commander-style names, custom-name precedence, free-text commander edits, legacy
+roster normalization,
 notes/style edits, undo/redo, and army file round-tripping plus Playwright
 coverage for creating two armies with the default hierarchy, reload persistence,
 cyclic import rejection, export/import round-tripping, roster library

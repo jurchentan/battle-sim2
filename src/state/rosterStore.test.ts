@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { armyRosterSchema, createSeedRoster } from '../models';
+import { armyRosterSchema, createSeedRoster, defaultFactionStrengths } from '../models';
 import { findUnit, unitDisplayName, unitDynamicName } from '../features/army/rosterDocuments';
 import { useRosterStore } from './rosterStore';
 
@@ -28,7 +28,14 @@ describe('army roster store', () => {
         color: '#2f5d8a',
       }),
     );
-    expect(useRosterStore.getState().document.factions[0]?.namingMode).toBe('numeric');
+    expect(useRosterStore.getState().document.factions[0]?.namingModes).toEqual({
+      army: 'numeric-universal',
+      corps: 'numeric-universal',
+      division: 'numeric-universal',
+      brigade: 'numeric-universal',
+      regiment: 'numeric-universal',
+      other: 'numeric-universal',
+    });
 
     const army = unwrap(
       useRosterStore.getState().addUnit({
@@ -152,6 +159,27 @@ describe('army roster store', () => {
     expect(findUnit(document, other.id)?.initialStrength).toBeNull();
     expect(findUnit(document, explicitBlank.id)?.initialStrength).toBeNull();
     expect(armyRosterSchema.safeParse(document).success).toBe(true);
+
+    const customStrengths = defaultFactionStrengths();
+    customStrengths.infantry.brigade = 2500;
+    const customFaction = unwrap(
+      useRosterStore.getState().addFaction({
+        name: 'Custom army',
+        color: '#654321',
+        defaultStrengths: customStrengths,
+      }),
+    );
+    const customBrigade = unwrap(
+      useRosterStore.getState().addUnit({
+        factionId: customFaction.id,
+        echelon: 'brigade',
+        unitType: 'infantry',
+        parentUnitId: null,
+      }),
+    );
+    expect(findUnit(useRosterStore.getState().document, customBrigade.id)?.initialStrength).toBe(
+      2500,
+    );
   });
 
   it('generates names from faction naming mode with custom-name precedence', () => {
@@ -210,6 +238,56 @@ describe('army roster store', () => {
     document = useRosterStore.getState().document;
     expect(findUnit(document, custom.id)?.customName).toBeUndefined();
     expect(unitDisplayName(document, findUnit(document, custom.id)!)).toBe('5th Brigade');
+  });
+
+  it('numbers local mode within each parent formation', () => {
+    const roster = createSeedRoster();
+    const north = roster.factions.find((faction) => faction.id === 'faction-north');
+    if (!north) throw new Error('Missing seeded North faction');
+    north.namingModes = { ...north.namingModes, brigade: 'numeric-local' };
+    useRosterStore.getState().loadDocument(roster);
+
+    const secondDivision = unwrap(
+      useRosterStore.getState().addUnit({
+        factionId: 'faction-north',
+        customName: 'Holt Division',
+        echelon: 'division',
+        unitType: 'other',
+        parentUnitId: 'unit-north-corps',
+      }),
+    );
+    const secondFirst = unwrap(
+      useRosterStore.getState().addUnit({
+        factionId: 'faction-north',
+        echelon: 'brigade',
+        unitType: 'infantry',
+        parentUnitId: secondDivision.id,
+      }),
+    );
+    const secondSecond = unwrap(
+      useRosterStore.getState().addUnit({
+        factionId: 'faction-north',
+        echelon: 'brigade',
+        unitType: 'infantry',
+        parentUnitId: secondDivision.id,
+      }),
+    );
+    const firstFourth = unwrap(
+      useRosterStore.getState().addUnit({
+        factionId: 'faction-north',
+        echelon: 'brigade',
+        unitType: 'infantry',
+        parentUnitId: 'unit-north-division',
+      }),
+    );
+
+    const document = useRosterStore.getState().document;
+    expect(unitDisplayName(document, findUnit(document, 'unit-north-brigade-1')!)).toBe(
+      '1st Brigade',
+    );
+    expect(unitDisplayName(document, findUnit(document, secondFirst.id)!)).toBe('1st Brigade');
+    expect(unitDisplayName(document, findUnit(document, secondSecond.id)!)).toBe('2nd Brigade');
+    expect(unitDisplayName(document, findUnit(document, firstFourth.id)!)).toBe('4th Brigade');
   });
 
   it('reparents safely and rejects self-parenting and indirect cycles', () => {
@@ -391,6 +469,44 @@ describe('army roster store', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('smallest unit');
+    expect(useRosterStore.getState().document).toBe(before);
+  });
+
+  it('rejects units at or above their parent echelon', () => {
+    const before = useRosterStore.getState().document;
+
+    const armyUnderCorps = useRosterStore.getState().addUnit({
+      factionId: 'faction-north',
+      echelon: 'army',
+      unitType: 'other',
+      parentUnitId: 'unit-north-corps',
+    });
+    expect(armyUnderCorps.ok).toBe(false);
+    if (!armyUnderCorps.ok) expect(armyUnderCorps.error).toContain('cannot be placed under');
+
+    const divisionUnderBrigade = useRosterStore.getState().addUnit({
+      factionId: 'faction-north',
+      echelon: 'division',
+      unitType: 'infantry',
+      parentUnitId: 'unit-north-brigade-1',
+    });
+    expect(divisionUnderBrigade.ok).toBe(false);
+    if (!divisionUnderBrigade.ok) {
+      expect(divisionUnderBrigade.error).toContain('cannot be placed under');
+    }
+
+    const promotedBrigade = useRosterStore.getState().updateUnit('unit-north-brigade-1', {
+      echelon: 'division',
+    });
+    expect(promotedBrigade.ok).toBe(false);
+    if (!promotedBrigade.ok) expect(promotedBrigade.error).toContain('cannot be placed under');
+
+    const armyReparented = useRosterStore
+      .getState()
+      .reparentUnit('unit-north-army', 'unit-north-corps');
+    expect(armyReparented.ok).toBe(false);
+    if (!armyReparented.ok) expect(armyReparented.error).toContain('cycle');
+
     expect(useRosterStore.getState().document).toBe(before);
   });
 

@@ -77,17 +77,23 @@ silently mutate existing scenarios.
 
 ### Army rosters
 
-- Factions with configurable colors and a numbering style: numeric
-  (`1st Brigade`) or commander-style (`Johnsons Brigade`).
+- Factions with configurable colors and a naming style per echelon: universal
+  numbers (continuous `1st Brigade`, `2nd Brigade` across the faction), local
+  numbers (each parent formation restarts at `1st Brigade`), or commander-style
+  (`Johnsons Brigade`). A faction can mix styles, for example commander-style
+  divisions and numbered brigades.
 - Free-text commanders and custom unit names. A non-empty custom name overrides
   the generated name.
 - Configurable hierarchy with default `army > corps > division > brigade`;
-  additional echelons (`regiment`, `other`) are allowed.
+  additional echelons (`regiment`, `other`) are allowed. Subordinates must sit
+  strictly below their parent, so higher formations cannot be nested under
+  lower ones.
 - Configurable smallest echelon (for example brigade or regiment). Units at or
   below it carry their own strength; higher formations display the summed
   strength of their subordinates.
-- Per-echelon default strengths for infantry, cavalry, and artillery, applied
-  when a new unit is at or below the smallest echelon.
+- Per-faction, per-echelon default strengths for infantry, cavalry, and
+  artillery, editable in the faction form and applied when a new unit is at or
+  below the smallest echelon.
 - Unit type, notes, and default symbol style.
 - Inline subordinate creation from any formation above the smallest echelon.
 - Cycle and reference validation.

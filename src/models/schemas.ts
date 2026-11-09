@@ -246,19 +246,6 @@ export const terrainMapSchema = z
   });
 export type TerrainMap = z.infer<typeof terrainMapSchema>;
 
-export const factionNamingModeSchema = z.enum(['numeric', 'commander']);
-export type FactionNamingMode = z.infer<typeof factionNamingModeSchema>;
-
-export const factionSchema = z.object({
-  id: idSchema,
-  name: nameSchema,
-  color: colorSchema,
-  labelColor: colorSchema.optional(),
-  namingMode: factionNamingModeSchema.default('numeric'),
-  notes: z.string().optional(),
-});
-export type Faction = z.infer<typeof factionSchema>;
-
 export const unitEchelonSchema = z.enum([
   'army',
   'corps',
@@ -271,6 +258,89 @@ export type UnitEchelon = z.infer<typeof unitEchelonSchema>;
 
 export const unitTypeSchema = z.enum(['infantry', 'cavalry', 'artillery', 'other']);
 export type UnitType = z.infer<typeof unitTypeSchema>;
+
+export const factionNamingModeSchema = z.enum(['numeric-universal', 'numeric-local', 'commander']);
+export type FactionNamingMode = z.infer<typeof factionNamingModeSchema>;
+
+export const factionNamingModesSchema = z.object({
+  army: factionNamingModeSchema.default('numeric-universal'),
+  corps: factionNamingModeSchema.default('numeric-universal'),
+  division: factionNamingModeSchema.default('numeric-universal'),
+  brigade: factionNamingModeSchema.default('numeric-universal'),
+  regiment: factionNamingModeSchema.default('numeric-universal'),
+  other: factionNamingModeSchema.default('numeric-universal'),
+});
+export type FactionNamingModes = z.infer<typeof factionNamingModesSchema>;
+
+const echelonStrengthValuesSchema = z.object({
+  army: z.number().nonnegative(),
+  corps: z.number().nonnegative(),
+  division: z.number().nonnegative(),
+  brigade: z.number().nonnegative(),
+  regiment: z.number().nonnegative(),
+  other: z.number().nonnegative(),
+});
+
+export const factionDefaultStrengthsSchema = z.object({
+  infantry: echelonStrengthValuesSchema,
+  cavalry: echelonStrengthValuesSchema,
+  artillery: echelonStrengthValuesSchema,
+});
+export type FactionDefaultStrengths = z.infer<typeof factionDefaultStrengthsSchema>;
+
+/** Built-in per-echelon defaults used when a faction has no override. */
+export const DEFAULT_FACTION_STRENGTHS: FactionDefaultStrengths = {
+  infantry: {
+    army: 20000,
+    corps: 10000,
+    division: 5000,
+    brigade: 1500,
+    regiment: 500,
+    other: 500,
+  },
+  cavalry: {
+    army: 8000,
+    corps: 4000,
+    division: 2000,
+    brigade: 800,
+    regiment: 300,
+    other: 300,
+  },
+  artillery: {
+    army: 3000,
+    corps: 1500,
+    division: 800,
+    brigade: 300,
+    regiment: 100,
+    other: 100,
+  },
+};
+
+export function defaultFactionNamingModes(): FactionNamingModes {
+  return {
+    army: 'numeric-universal',
+    corps: 'numeric-universal',
+    division: 'numeric-universal',
+    brigade: 'numeric-universal',
+    regiment: 'numeric-universal',
+    other: 'numeric-universal',
+  };
+}
+
+export function defaultFactionStrengths(): FactionDefaultStrengths {
+  return structuredClone(DEFAULT_FACTION_STRENGTHS);
+}
+
+export const factionSchema = z.object({
+  id: idSchema,
+  name: nameSchema,
+  color: colorSchema,
+  labelColor: colorSchema.optional(),
+  namingModes: factionNamingModesSchema.default(() => defaultFactionNamingModes()),
+  defaultStrengths: factionDefaultStrengthsSchema.default(() => defaultFactionStrengths()),
+  notes: z.string().optional(),
+});
+export type Faction = z.infer<typeof factionSchema>;
 
 export const symbolStyleSchema = z.object({
   color: colorSchema,
@@ -324,10 +394,31 @@ function normalizeArmyRosterInput(value: unknown): unknown {
     ? roster.factions.map((faction) => {
         const record = asRecord(faction);
         if (!record) return faction;
-        if (record.namingMode === 'numeric' || record.namingMode === 'commander') {
-          return record;
-        }
-        return { ...record, namingMode: 'numeric' };
+
+        const { namingMode: legacyMode, ...rest } = record;
+        const existingModes = asRecord(rest.namingModes);
+        const fallback: FactionNamingMode =
+          legacyMode === 'numeric'
+            ? 'numeric-universal'
+            : legacyMode === 'numeric-universal' ||
+                legacyMode === 'numeric-local' ||
+                legacyMode === 'commander'
+              ? legacyMode
+              : 'numeric-universal';
+
+        const namingModes = Object.fromEntries(
+          unitEchelonSchema.options.map((echelon) => {
+            const mode = existingModes?.[echelon];
+            return [
+              echelon,
+              mode === 'numeric-universal' || mode === 'numeric-local' || mode === 'commander'
+                ? mode
+                : fallback,
+            ];
+          }),
+        );
+
+        return { ...rest, namingModes };
       })
     : roster.factions;
 
@@ -361,6 +452,10 @@ function normalizeArmyRosterInput(value: unknown): unknown {
 
   const { commanders: _commanders, ...rest } = roster;
   return { ...rest, factions, units };
+}
+
+function unitEchelonRank(echelon: UnitEchelon): number {
+  return unitEchelonSchema.options.indexOf(echelon);
 }
 
 function findUnitHierarchyCycle(units: readonly UnitDefinition[]): string[] | null {
@@ -434,6 +529,12 @@ const armyRosterObjectSchema = z
           ctx.addIssue({
             code: 'custom',
             message: `Unit "${unit.id}" and parent "${parent.id}" must belong to the same faction`,
+            path: ['units', index, 'parentUnitId'],
+          });
+        } else if (unitEchelonRank(unit.echelon) <= unitEchelonRank(parent.echelon)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Unit "${unit.id}" must be below its parent "${parent.id}" in the hierarchy`,
             path: ['units', index, 'parentUnitId'],
           });
         }

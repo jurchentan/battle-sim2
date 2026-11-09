@@ -70,11 +70,11 @@ equivalent semantic data.
 
 ## M4 — Army roster editor (complete)
 
-- [x] Faction management with configurable colors and naming mode
+- [x] Faction management with configurable colors, per-echelon naming, and default strengths
 - [x] Unit creation, editing, and safe reparenting
 - [x] Default army/corps/division/brigade hierarchy plus custom echelons
-- [x] Per-echelon default strengths, type, notes, symbol style
-- [x] Generated numbered or commander-style unit names with custom-name override
+- [x] Per-faction, per-echelon default strengths, type, notes, symbol style
+- [x] Generated universal/local numbered or commander-style unit names with custom-name override
 - [x] Free-text commander per unit
 - [x] Roster library and import/export
 - [x] Configurable smallest echelon with derived formation strength roll-up

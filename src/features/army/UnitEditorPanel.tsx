@@ -3,6 +3,7 @@ import type { ArmyRoster, UnitDefinition, UnitEchelon, UnitType } from '../../mo
 import { useRosterStore } from '../../state/rosterStore';
 import { ArmyField } from './ArmyField';
 import {
+  canEchelonBeSubordinateOf,
   canHaveSubordinates,
   defaultSymbolStyle,
   defaultUnitStrength,
@@ -53,12 +54,14 @@ function typeLabel(value: UnitType): string {
 function parentCandidates(
   roster: ArmyRoster,
   factionId: string,
+  childEchelon: UnitEchelon,
   excludeUnitId?: string,
 ): UnitDefinition[] {
   return roster.units
     .filter((unit) => unit.factionId === factionId)
     .filter((unit) => unit.id !== excludeUnitId)
     .filter((unit) => canHaveSubordinates(roster, unit))
+    .filter((unit) => canEchelonBeSubordinateOf(childEchelon, unit.echelon))
     .sort((a, b) => {
       const echelonDelta = ECHELON_ORDER.indexOf(a.echelon) - ECHELON_ORDER.indexOf(b.echelon);
       if (echelonDelta !== 0) return echelonDelta;
@@ -117,6 +120,7 @@ function UnitCreateForm({
     ? seed.factionId
     : (roster.factions[0]?.id ?? '');
   const initialEchelon = nextEchelonFor(parent?.echelon ?? null);
+  const initialFactionRecord = roster.factions.find((faction) => faction.id === initialFaction);
 
   const [factionId, setFactionId] = useState(initialFaction);
   const [parentUnitId, setParentUnitId] = useState<string>(
@@ -127,7 +131,12 @@ function UnitCreateForm({
   const [unitType, setUnitType] = useState<UnitType>('infantry');
   const [commander, setCommander] = useState('');
   const [strengthText, setStrengthText] = useState(() => {
-    const strength = defaultUnitStrength('infantry', initialEchelon, roster.smallestUnitEchelon);
+    const strength = defaultUnitStrength(
+      initialFactionRecord,
+      'infantry',
+      initialEchelon,
+      roster.smallestUnitEchelon,
+    );
     return strength === null ? '' : String(strength);
   });
   const [strengthEdited, setStrengthEdited] = useState(false);
@@ -135,31 +144,43 @@ function UnitCreateForm({
   const [error, setError] = useState<string | null>(null);
 
   const faction = roster.factions.find((candidate) => candidate.id === factionId);
-  const candidates = parentCandidates(roster, factionId);
+  const candidates = parentCandidates(roster, factionId, echelon);
   const previewName = draftUnitDisplayName(roster, {
     factionId,
     echelon,
+    parentUnitId: parentUnitId || null,
     commander,
     customName,
   });
 
-  const defaultStrengthText = (type: UnitType, value: UnitEchelon): string => {
-    const strength = defaultUnitStrength(type, value, roster.smallestUnitEchelon);
+  const defaultStrengthText = (
+    type: UnitType,
+    value: UnitEchelon,
+    targetFactionId = factionId,
+  ): string => {
+    const targetFaction = roster.factions.find((candidate) => candidate.id === targetFactionId);
+    const strength = defaultUnitStrength(targetFaction, type, value, roster.smallestUnitEchelon);
     return strength === null ? '' : String(strength);
   };
 
   const handleFactionChange = (nextFactionId: string): void => {
     setFactionId(nextFactionId);
     const currentParent = parentUnitId ? findUnit(roster, parentUnitId) : undefined;
-    if (currentParent && currentParent.factionId !== nextFactionId) {
+    const keepsParent = !currentParent || currentParent.factionId === nextFactionId;
+    const nextEchelon = keepsParent ? echelon : 'army';
+    if (!keepsParent) {
       setParentUnitId('');
       setEchelon('army');
-      if (!strengthEdited) setStrengthText(defaultStrengthText(unitType, 'army'));
     }
+    if (!strengthEdited) setStrengthText(defaultStrengthText(unitType, nextEchelon, nextFactionId));
   };
 
   const handleEchelonChange = (nextEchelon: UnitEchelon): void => {
     setEchelon(nextEchelon);
+    const currentParent = parentUnitId ? findUnit(roster, parentUnitId) : undefined;
+    if (currentParent && !canEchelonBeSubordinateOf(nextEchelon, currentParent.echelon)) {
+      setParentUnitId('');
+    }
     if (!strengthEdited) setStrengthText(defaultStrengthText(unitType, nextEchelon));
   };
 
@@ -305,7 +326,7 @@ function UnitCreateForm({
         <ArmyField
           label="Initial strength"
           hint={
-            defaultUnitStrength(unitType, echelon, roster.smallestUnitEchelon) === null
+            defaultUnitStrength(faction, unitType, echelon, roster.smallestUnitEchelon) === null
               ? 'Strength rolls up from subordinates at this echelon. Leave blank when unknown.'
               : `Prefilled with the default. Leave blank when strength is unknown.`
           }

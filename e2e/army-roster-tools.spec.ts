@@ -127,3 +127,123 @@ test('adds subordinates from the order of battle and rolls up formation strength
     'Σ 4,000',
   );
 });
+
+test('restarts local numbering inside each parent formation', async ({ page }) => {
+  await page.goto('/');
+  await openArmyWorkspace(page);
+
+  await page.getByRole('button', { name: 'Edit faction Northern League' }).click();
+  const factionManager = page.getByTestId('faction-manager');
+  await factionManager
+    .getByRole('combobox', { name: 'Brigade naming mode' })
+    .selectOption('numeric-local');
+  await factionManager.getByRole('button', { name: 'Save faction' }).click();
+  await expect(page.getByTestId('faction-row-faction-north')).toContainText('Mixed naming');
+  await expect(page.getByRole('button', { name: 'Select unit 1st Brigade' })).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Add unit' }).click();
+  const divisionForm = page.getByTestId('unit-create-form');
+  await divisionForm.getByLabel('Custom name').fill('Holt Division');
+  await divisionForm
+    .getByRole('combobox', { name: 'Echelon', exact: true })
+    .selectOption('division');
+  await divisionForm.getByRole('combobox', { name: /^Parent formation/ }).selectOption({
+    label: 'Corps · I Corps',
+  });
+  await divisionForm.getByRole('button', { name: 'Create unit' }).click();
+  await expect(page.getByTestId('unit-editor')).toContainText('Holt Division');
+
+  await page.getByRole('button', { name: 'Add subordinate to Holt Division' }).click();
+  const brigadeForm = page.getByTestId('unit-create-form');
+  await expect(brigadeForm.getByRole('combobox', { name: 'Echelon', exact: true })).toHaveValue(
+    'brigade',
+  );
+  await expect(brigadeForm.getByTestId('unit-name-preview')).toHaveText('1st Brigade');
+  await brigadeForm.getByRole('button', { name: 'Create unit' }).click();
+
+  await expect(page.getByRole('button', { name: 'Select unit 1st Brigade' })).toHaveCount(2);
+  await expect(page.getByTestId('roster-save-status')).toHaveText('Saved', { timeout: 5_000 });
+
+  await page.reload();
+  await openArmyWorkspace(page);
+  await expect(page.getByTestId('faction-row-faction-north')).toContainText('Mixed naming');
+  await expect(page.getByRole('button', { name: 'Select unit 1st Brigade' })).toHaveCount(2);
+});
+
+test('enforces strict echelon order when choosing parents', async ({ page }) => {
+  await page.goto('/');
+  await openArmyWorkspace(page);
+
+  await page.getByRole('button', { name: 'Add unit' }).click();
+  const form = page.getByTestId('unit-create-form');
+  const echelon = form.getByRole('combobox', { name: 'Echelon', exact: true });
+  const parent = form.getByRole('combobox', { name: /^Parent formation/ });
+
+  await echelon.selectOption('division');
+  const divisionParents = await parent.getByRole('option').allTextContents();
+  expect(divisionParents).toContain('Army · Army of the North');
+  expect(divisionParents).toContain('Corps · I Corps');
+  expect(divisionParents.some((label) => label.startsWith('Division · '))).toBe(false);
+  expect(divisionParents.some((label) => label.startsWith('Brigade · '))).toBe(false);
+
+  await parent.selectOption({ label: 'Corps · I Corps' });
+  await expect(echelon).toHaveValue('division');
+  await echelon.selectOption('army');
+  await expect(parent).toHaveValue('');
+
+  await form.getByRole('button', { name: 'Cancel' }).first().click();
+  await page.getByRole('button', { name: 'Select unit Voss Division' }).click();
+  const editorParents = await page
+    .getByTestId('unit-editor')
+    .getByRole('combobox', { name: /^Parent formation/ })
+    .getByRole('option')
+    .allTextContents();
+  expect(editorParents).toContain('Army · Army of the North');
+  expect(editorParents).toContain('Corps · I Corps');
+  expect(editorParents.some((label) => label.startsWith('Division · '))).toBe(false);
+  expect(editorParents.some((label) => label.startsWith('Brigade · '))).toBe(false);
+});
+
+test('uses per-echelon naming and faction-specific default strengths', async ({ page }) => {
+  await page.goto('/');
+  await openArmyWorkspace(page);
+
+  await page.getByRole('button', { name: 'Edit faction Northern League' }).click();
+  const factionManager = page.getByTestId('faction-manager');
+  await factionManager
+    .getByRole('combobox', { name: 'Division naming mode' })
+    .selectOption('commander');
+  await factionManager.getByLabel('Infantry Brigade default strength').fill('2000');
+  await factionManager.getByRole('button', { name: 'Save faction' }).click();
+  await expect(page.getByTestId('faction-row-faction-north')).toContainText('Mixed naming');
+
+  await page.getByRole('button', { name: 'Add unit' }).click();
+  const divisionForm = page.getByTestId('unit-create-form');
+  await divisionForm.getByLabel('Commander').fill('Sigel');
+  await divisionForm
+    .getByRole('combobox', { name: 'Echelon', exact: true })
+    .selectOption('division');
+  await divisionForm.getByRole('combobox', { name: /^Parent formation/ }).selectOption({
+    label: 'Corps · I Corps',
+  });
+  await expect(divisionForm.getByTestId('unit-name-preview')).toHaveText('Sigels Division');
+  await divisionForm.getByRole('button', { name: 'Create unit' }).click();
+  await expect(page.getByTestId('unit-editor')).toContainText('Sigels Division');
+
+  await page.getByRole('button', { name: 'Add subordinate to Sigels Division' }).click();
+  const brigadeForm = page.getByTestId('unit-create-form');
+  await expect(brigadeForm.getByTestId('unit-name-preview')).toHaveText('4th Brigade');
+  await expect(brigadeForm.getByLabel('Initial strength')).toHaveValue('2000');
+  await brigadeForm.getByRole('button', { name: 'Create unit' }).click();
+
+  const editor = page.getByTestId('unit-editor');
+  await expect(editor).toContainText('4th Brigade');
+  await expect(editor.getByLabel('Initial strength')).toHaveValue('2000');
+  await expect(page.getByTestId('roster-save-status')).toHaveText('Saved', { timeout: 5_000 });
+
+  await page.reload();
+  await openArmyWorkspace(page);
+  await expect(page.getByRole('button', { name: 'Select unit Sigels Division' })).toBeVisible();
+  await page.getByRole('button', { name: 'Select unit 4th Brigade' }).click();
+  await expect(page.getByTestId('unit-editor').getByLabel('Initial strength')).toHaveValue('2000');
+});
