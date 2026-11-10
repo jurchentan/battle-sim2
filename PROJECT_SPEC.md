@@ -1,6 +1,6 @@
 # Battle Map Editor — Project Specification
 
-Status: M4 complete (army roster editor). Source of truth: `Readme.md`
+Status: M5 complete (scenario editor and deployment). Source of truth: `Readme.md`
 (engineering specification) plus `Info.md` (product vision). If documents
 disagree, `Readme.md` wins for implementation details. The terrain workspace
 supports area and path tools, symbols and labels, style editing, layer
@@ -9,7 +9,13 @@ freehand drawing, and a local IndexedDB library with autosave plus versioned
 JSON import/export. The army workspace manages factions and hierarchical units
 with safe reparenting, generated or custom unit names, free-text commanders,
 per-echelon default strengths, configurable smallest-unit strength roll-up, and
-its own IndexedDB library with autosave and versioned JSON import/export.
+its own IndexedDB library with autosave and versioned JSON import/export. The
+scenario workspace creates self-contained battles from saved terrain and roster
+snapshots, deploys formations with drag/rotate/frontage/label editing, renders
+smallest-echelon units as rectangles and higher echelons as configurable text
+labels, filters factions, removes formations directly with undo, and keeps
+terrain inspection separate from unit deployment. Scenario persistence, phase
+management, annotations, and exports remain scheduled for M6-M7.
 
 ## 1. Product summary
 
@@ -103,12 +109,31 @@ silently mutate existing scenarios.
 ### Scenario editing
 
 - Create a scenario from copies of saved terrain and roster documents.
-- Deploy brigade formations: move, rotate, resize frontage, label, hide.
+- Deploy formations: move, rotate, resize frontage, label, hide. Deploying a
+  parent also places its undeployed subordinates in echelon rows in front, with
+  smaller formations ahead of larger ones.
+- Formations at or below the roster's smallest echelon render as rectangular
+  symbols; higher formations render as text labels with per-echelon font sizes,
+  name styles (full, shortened, commander surname, or none), an uppercase
+  display setting, and optional dynamic frontage scaled linearly from a
+  3,000-strong baseline.
+- Labels are measured to avoid clipping and rotate with formations, flipping
+  upright when upside down. Clicking or dragging a name selects and moves its
+  formation, including when names are hidden.
+- Remove formations directly from the inspector or order of battle; removals are
+  immediate and undoable.
 - Multiple phases: add, duplicate, rename, reorder, delete, activate.
 - Per-phase positions, orientation, frontage, effective strength, status,
   visibility, and label overrides.
 - Per-phase movement arrows, attack arrows, defense lines, highlights, and text.
 - Layer and phase visibility toggles.
+
+Milestone M5 implements snapshot creation, active-phase deployment including
+parent/subordinate formation blocks, rectangle and text formation rendering,
+per-echelon font and name display settings, dynamic frontage, label-based
+selection and dragging, formation editing, faction filtering, direct removal, and
+separate terrain/unit modes. Phase management and annotations follow in M6;
+scenario persistence and export follow in M7.
 
 ### Persistence and export
 

@@ -83,13 +83,19 @@ equivalent semantic data.
 Gate: create two armies with corps/division/three brigades; reject cycles; persist
 and reopen.
 
-## M5 — Scenario editor and deployment
+## M5 — Scenario editor and deployment (complete)
 
-- [ ] Create scenario from snapshots of saved terrain and roster
-- [ ] Place brigade formations
-- [ ] Select, drag, rotate, resize frontage, edit labels
-- [ ] Faction visibility filters
-- [ ] Separate terrain and unit editing modes
+- [x] Create scenario from snapshots of saved terrain and roster
+- [x] Place formations; smallest-echelon units render as rectangles, higher echelons as text labels
+- [x] Deploy parent formations with undeployed subordinates arranged in echelon rows in front
+- [x] Configurable per-echelon label sizes, name styles (full, shortened, commander surname, none), and uppercase labels
+- [x] Dynamic frontage scaled linearly from a 3,000-strong baseline
+- [x] Measure labels to avoid clipping and keep transparent hit areas close to the text
+- [x] Select and drag formations by their symbols or names, with legible upside-down label flipping
+- [x] Select, drag, rotate with screen-space handles, resize frontage, edit labels
+- [x] Direct removal from the inspector and order of battle, with undo
+- [x] Faction visibility filters
+- [x] Separate terrain and unit editing modes
 
 Gate: deploy at least 20 brigades without changing terrain; edits to library
 sources do not mutate the scenario.

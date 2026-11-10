@@ -12,7 +12,7 @@ test('switches between the three editor workspaces', async ({ page }) => {
 
   await page.getByRole('tab', { name: 'Scenario Editor' }).click();
   await expect(page.getByRole('heading', { name: 'Scenario Editor' })).toBeVisible();
-  await expect(page.getByText('Action at Ashford Ford')).toBeVisible();
+  await expect(page.getByTestId('scenario-name')).toHaveText('Action at Ashford Ford');
 
   await page.getByRole('tab', { name: 'Terrain Editor' }).click();
   await expect(page.getByRole('heading', { name: 'Terrain Editor' })).toBeVisible();

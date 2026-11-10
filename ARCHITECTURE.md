@@ -1,13 +1,16 @@
 # Architecture
 
-Status: M4 complete (army roster editor). Terrain editing supports area, path,
-symbol, and label tools, style controls, layer visibility/locking/z-order,
-object stacking and duplication, and simplified freehand drawing. The army
-workspace manages factions and hierarchical units with safe reparenting,
-generated or custom unit names, free-text commanders, a configurable smallest
-echelon, per-echelon default strengths, derived formation strength, and editable
-unit characteristics. Terrain and roster documents persist in IndexedDB with
-autosave, document management, and versioned JSON import/export.
+Status: M5 complete (scenario editor and deployment). Terrain editing supports
+area, path, symbol, and label tools, style controls, layer
+visibility/locking/z-order, object stacking and duplication, and simplified
+freehand drawing. The army workspace manages factions and hierarchical units
+with safe reparenting, generated or custom unit names, free-text commanders, a
+configurable smallest echelon, per-echelon default strengths, derived formation
+strength, and editable unit characteristics. Terrain and roster documents
+persist in IndexedDB with autosave, document management, and versioned JSON
+import/export. The scenario workspace composes snapshot battles, deploys
+formations, and edits active-phase deployment state; scenario persistence and
+phases arrive in M6-M7.
 
 ## 1. Stack and tooling
 
@@ -39,16 +42,16 @@ src/
   features/army/       roster editor, hierarchy helpers, library dialog, file format
   features/files/      versioned JSON import/export and downloads
   features/library/    shared Dexie library, naming helpers, terrain library dialog
+  features/scenario/   scenario snapshots, deployment canvas, order of battle, inspector
   features/terrain/    toolbar, tool rail, layers, inspector, shortcuts, factories
   models/              TypeScript types, Zod schemas, seed documents, id helper
-  state/               Zustand stores (workspace, camera, editor, terrain, roster, libraries)
+  state/               Zustand stores (workspace, camera, editor, terrain, roster, scenario, libraries)
   styles/              global Tailwind entry and theme tokens
 ```
 
 Planned additions follow the original spec:
 
 ```text
-  features/units/      formation rendering and placement (M5)
   features/phases/     timeline, phase snapshots, annotations (M6)
   tests/               cross-cutting model/state/geometry tests
 e2e/                   Playwright specs
@@ -151,9 +154,10 @@ cloned in `src/models/seed.ts`.
 ## 4. State and undo strategy
 
 - Document and transient UI state are separate Zustand stores
-  (`terrainStore`, `editorStore`, `cameraStore`, `rosterStore`) plus
-  `libraryStore` and `rosterLibraryStore` for the active saved documents and
-  persistence status.
+  (`terrainStore`, `editorStore`, `cameraStore`, `rosterStore`, `scenarioStore`)
+  plus `libraryStore` and `rosterLibraryStore` for the active saved documents and
+  persistence status. `scenarioEditorStore` holds mode, selections, placement,
+  and visibility filters.
 - Documents are normalized by ID; selection stores IDs, never object references.
 - Every document edit goes through explicit named actions (`addFeature`,
   `updateFeature`, `deleteFeature`, `duplicateFeature`, `moveFeature`,
@@ -162,9 +166,9 @@ cloned in `src/models/seed.ts`.
   `deleteFaction`, `addUnit`, `updateUnit`, `reparentUnit`, `deleteUnit`, later
   phase actions).
 - Undo/redo is a snapshot history around committed document edits, capped at 100
-  entries in `terrainStore` and `rosterStore`. Every roster mutation is validated
-  against `armyRosterSchema` before entering history, so invalid cycles or
-  references never reach the document.
+  entries in `terrainStore`, `rosterStore`, and `scenarioStore`. Every roster and
+  scenario mutation is validated against its Zod schema before entering history,
+  so invalid cycles, references, or deployment values never reach the document.
 - Pointer gestures buffer a preview, then commit once on pointer-up: dragging,
   transforming, and drawing each produce one history entry.
 - Name, color, and numeric edits commit on blur; style selects commit
@@ -219,13 +223,51 @@ cloned in `src/models/seed.ts`.
 - Konva `Transformer` provides resize/rotate handles; transforms are flattened
   back to world geometry on commit.
 - Selection handles and guides live outside exported layers.
+- The scenario editor has two explicit modes. Terrain mode renders the snapshot
+  read-only for inspection plus transient layer visibility; units mode deploys
+  and edits formations. Selecting a formation or feature switches to the
+  corresponding mode. Faction and layer visibility filters are transient view
+  state and never mutate the scenario document.
+- Scenario formations commit a single deployment edit on drag/transform end.
+  Formations at or below the roster's smallest echelon render as filled
+  rectangles; higher echelons render as text labels centered on the deployment
+  point. Labels live in rotated groups so they turn with the formation, and
+  text flips 180° when the normalized formation rotation is between 90° and
+  270° so names never read upside down. Label width is measured with the same
+  font Konva renders, which prevents long names from clipping and keeps the
+  transparent hit rectangle close to the visible text instead of spanning a
+  fixed oversized block. Per-echelon font sizes, name formats (full, shortened,
+  commander surname, or none), uppercase labels, and dynamic frontage are
+  transient display preferences in `scenarioEditorStore`, not scenario document
+  state. Dynamic frontage scales the rendered rectangle by
+  `effectiveStrength / 3000`; the stored frontage remains the length for a
+  3,000-strong formation and therefore the value the inspector edits. Rectangle
+  labels use a separate invisible hit rectangle: clicking or dragging a name
+  selects the formation and mirrors its position into the rectangle group during
+  the drag, committing one deployment edit at the end. Hidden names keep a small
+  hit target, so text-only and nameless formations remain selectable. Side
+  transformer anchors change frontage length, the rotation handle changes
+  orientation, and labels are offset from the rectangle according to the unit
+  symbol style. The transformer sits outside the camera-scaled group so its
+  anchors keep a constant screen size and hit area at every zoom level.
+  Undo/redo covers deployment, movement, transform, label, removal, and direct
+  removal from the inspector or order of battle.
+- Deploying a parent formation also creates phase state for every undeployed
+  descendant in the same history entry. Descendants are grouped into one
+  centered row per echelon, ordered with the smallest formations at the front
+  and larger formations behind, and the parent sits at the requested point
+  behind those rows. Already-deployed subordinates keep their existing
+  positions.
+- Loading or creating a scenario resets the camera and transient editor state.
+  Scenario snapshots are deep copies; library edits cannot reach them.
 
 ## 6. Persistence and file formats
 
 The Dexie database `battle-map-editor` is at schema version 4. It holds the
 `terrainMaps` and `armyRosters` tables, both indexed by `id`, `name`, and
 `updatedAt`. Version 3 briefly added a `unitPresets` table; version 4 drops it.
-Future milestones add a scenario table through another Dexie schema version.
+Scenario documents live in memory in M5 and reset to the seeded demo on reload;
+a scenario table is added in M7 through another Dexie schema version.
 `localStorage` stores only the IDs of the last open terrain map and army roster
 (UI preferences), never document contents.
 

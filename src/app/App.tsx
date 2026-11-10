@@ -36,20 +36,12 @@ export function App() {
       </header>
 
       <main className="min-h-0 flex-1">
-        {workspace === 'terrain' || workspace === 'army' ? (
-          <ActiveWorkspace />
-        ) : (
-          <div className="h-full overflow-auto">
-            <div className="mx-auto w-full max-w-6xl px-6 py-8">
-              <ActiveWorkspace />
-            </div>
-          </div>
-        )}
+        <ActiveWorkspace />
       </main>
 
       <footer className="shrink-0 border-t border-[#d8cdb5] bg-[#f1e9d8]/80">
         <div className="flex w-full flex-wrap items-center justify-between gap-2 px-6 py-2 text-xs text-[#7c715c]">
-          <span>Milestone M4 · Army roster editor and library</span>
+          <span>Milestone M5 · Scenario editor and deployment</span>
           <span>Desktop workspace · No accounts or network required</span>
         </div>
       </footer>
