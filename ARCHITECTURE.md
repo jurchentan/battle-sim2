@@ -1,9 +1,9 @@
 # Architecture
 
-Status: M5 complete (scenario editor and deployment). Terrain editing supports
-area, path, symbol, and label tools, style controls, layer
-visibility/locking/z-order, object stacking and duplication, and simplified
-freehand drawing. The army workspace manages factions and hierarchical units
+Status: M5 complete (scenario editor, deployment, and bulk formation selection).
+Terrain editing supports area, path, symbol, and label tools, style controls,
+layer visibility/locking/z-order, object stacking and duplication, and
+simplified freehand drawing. The army workspace manages factions and hierarchical units
 with safe reparenting, generated or custom unit names, free-text commanders, a
 configurable smallest echelon, per-echelon default strengths, derived formation
 strength, and editable unit characteristics. Terrain and roster documents
@@ -156,15 +156,25 @@ cloned in `src/models/seed.ts`.
 - Document and transient UI state are separate Zustand stores
   (`terrainStore`, `editorStore`, `cameraStore`, `rosterStore`, `scenarioStore`)
   plus `libraryStore` and `rosterLibraryStore` for the active saved documents and
-  persistence status. `scenarioEditorStore` holds mode, selections, placement,
-  and visibility filters.
+  persistence status. `scenarioEditorStore` holds the mode, the
+  `selectedUnitIds` array, the selected terrain feature, placement, display
+  preferences, and visibility filters.
 - Documents are normalized by ID; selection stores IDs, never object references.
+  `selectUnit(id | null)` replaces or clears the formation selection,
+  `selectUnits(ids)` replaces it with a deduplicated set,
+  `toggleUnitSelection(id)` adds or removes one formation, and
+  `ensureUnitSelected(id, additive)` keeps an already-selected formation
+  selected when a drag starts.
 - Every document edit goes through explicit named actions (`addFeature`,
   `updateFeature`, `deleteFeature`, `duplicateFeature`, `moveFeature`,
   `setLayerVisible`, `setLayerLocked`, `moveLayer`, `renameDocument`,
   `expandCanvas`, `setSmallestUnitEchelon`, `addFaction`, `updateFaction`,
-  `deleteFaction`, `addUnit`, `updateUnit`, `reparentUnit`, `deleteUnit`, later
-  phase actions).
+  `deleteFaction`, `addUnit`, `updateUnit`, `reparentUnit`, `deleteUnit`,
+  `placeUnit`, `updateUnitState`, `updateUnitStates`, `undeployUnit`,
+  `undeployUnits`, later phase actions). The two bulk scenario actions validate
+  and commit the whole patch set as one history entry, so a group drag, group
+  rotation, or multi-removal is a single undo step and is rejected atomically if
+  any formation state is invalid.
 - Undo/redo is a snapshot history around committed document edits, capped at 100
   entries in `terrainStore`, `rosterStore`, and `scenarioStore`. Every roster and
   scenario mutation is validated against its Zod schema before entering history,
@@ -228,6 +238,25 @@ cloned in `src/models/seed.ts`.
   and edits formations. Selecting a formation or feature switches to the
   corresponding mode. Faction and layer visibility filters are transient view
   state and never mutate the scenario document.
+- Scenario formation selection is additive and group-aware. An empty left-drag
+  in Units mode draws a screen-space marquee and selects every visible formation
+  whose shape or label bounds intersect it; Shift-drag unions the hits with the
+  existing selection, while an empty drag in Terrain mode still pans. Shift-click
+  toggles one formation on the map or in the order of battle, and double-clicking
+  a parent on either surface selects the parent plus its visible deployed
+  descendants. Screen-space marquee math lives in `features/scenario/marquee.ts`
+  and is unit-tested without mounting React.
+- Dragging any selected formation moves the whole selection with it. The drag
+  session records each member's start position, sibling Konva nodes and their
+  separate label nodes are moved during the gesture, and only drag end commits
+  one `updateUnitStates` entry. A short click guard after drag end prevents the
+  trailing click from collapsing the group back to one formation.
+- The multi-selection transformer shows one shared bounding box and rotate
+  handle. Rotating it fires `transformend` on every selected node; the layer
+  aggregates those patches in a microtask and commits one `updateUnitStates`
+  entry. Resize anchors are only enabled for a single rectangle formation.
+  The inspector offers a bulk rotation field and bulk removal, and
+  Delete/Backspace undeploys the selection through `undeployUnits`.
 - Scenario formations commit a single deployment edit on drag/transform end.
   Formations at or below the roster's smallest echelon render as filled
   rectangles; higher echelons render as text labels centered on the deployment
@@ -333,7 +362,12 @@ notes/style edits, undo/redo, and army file round-tripping plus Playwright
 coverage for creating two armies with the default hierarchy, reload persistence,
 cyclic import rejection, export/import round-tripping, roster library
 duplicate/rename/delete flows, default-strength/naming behavior, smallest-unit
-strength roll-up, and inline subordinate creation from the order of battle.
+strength roll-up, and inline subordinate creation from the order of battle. M5
+adds store tests for bulk state patches and atomic multi-removal, marquee
+geometry tests, and Playwright flows for deployment, single and group drag,
+single formation transforms, group rotation through the shared transformer
+handle, marquee and Shift-click multi-selection, hierarchy double-click,
+faction-filter cleanup, label dragging, and bulk removal with undo.
 
 ## 8. Conventions
 

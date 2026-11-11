@@ -120,6 +120,12 @@ silently mutate existing scenarios.
 - Labels are measured to avoid clipping and rotate with formations, flipping
   upright when upside down. Clicking or dragging a name selects and moves its
   formation, including when names are hidden.
+- Select several formations: drag a marquee on empty canvas, Shift-click to add
+  or remove one, or double-click a parent to select its deployed command.
+  Dragging any member moves the whole group, and the shared transformer handle
+  rotates the group around its center.
+- Bulk rotation and removal in the inspector, plus Delete/Backspace on a
+  multi-selection, each commit as one undoable edit.
 - Remove formations directly from the inspector or order of battle; removals are
   immediate and undoable.
 - Multiple phases: add, duplicate, rename, reorder, delete, activate.
@@ -131,9 +137,10 @@ silently mutate existing scenarios.
 Milestone M5 implements snapshot creation, active-phase deployment including
 parent/subordinate formation blocks, rectangle and text formation rendering,
 per-echelon font and name display settings, dynamic frontage, label-based
-selection and dragging, formation editing, faction filtering, direct removal, and
-separate terrain/unit modes. Phase management and annotations follow in M6;
-scenario persistence and export follow in M7.
+selection and dragging, formation editing, faction filtering, direct removal,
+multi-selection by marquee/Shift-click/hierarchy double-click, group drag and
+group rotation, and separate terrain/unit modes. Phase management and
+annotations follow in M6; scenario persistence and export follow in M7.
 
 ### Persistence and export
 

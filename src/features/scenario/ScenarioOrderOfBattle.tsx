@@ -3,6 +3,7 @@ import { useScenarioEditorStore } from '../../state/scenarioEditorStore';
 import { useScenarioStore } from '../../state/scenarioStore';
 import {
   ECHELON_LABELS,
+  descendantUnitIds,
   effectiveUnitStrength,
   unitChildren,
   unitDisplayName,
@@ -19,8 +20,9 @@ interface UnitRowProps {
   unit: UnitDefinition;
   depth: number;
   deployedUnitIds: ReadonlySet<string>;
-  selectedUnitId: string | null;
-  onSelectUnit: (unitId: string) => void;
+  selectedUnitIds: readonly string[];
+  onSelectUnit: (unitId: string, additive: boolean) => void;
+  onSelectHierarchy: (unitId: string) => void;
   onDeployUnit: (unitId: string) => void;
   onRemoveUnit: (unitId: string) => void;
 }
@@ -30,15 +32,16 @@ function UnitRow({
   unit,
   depth,
   deployedUnitIds,
-  selectedUnitId,
+  selectedUnitIds,
   onSelectUnit,
+  onSelectHierarchy,
   onDeployUnit,
   onRemoveUnit,
 }: UnitRowProps) {
   const children = unitChildren(roster, unit.id);
   const name = unitDisplayName(roster, unit);
   const deployed = deployedUnitIds.has(unit.id);
-  const selected = selectedUnitId === unit.id;
+  const selected = selectedUnitIds.includes(unit.id);
   const strength = effectiveUnitStrength(roster, unit.id);
 
   return (
@@ -59,7 +62,8 @@ function UnitRow({
           type="button"
           aria-label={`Select unit ${name}`}
           className="min-w-0 flex-1 text-left"
-          onClick={() => onSelectUnit(unit.id)}
+          onClick={(event) => onSelectUnit(unit.id, event.shiftKey)}
+          onDoubleClick={() => onSelectHierarchy(unit.id)}
         >
           <span className="block truncate text-xs font-semibold text-[#3b352a]">{name}</span>
           <span className="block truncate text-[0.62rem] text-[#7c715c]">
@@ -99,8 +103,9 @@ function UnitRow({
               unit={child}
               depth={depth + 1}
               deployedUnitIds={deployedUnitIds}
-              selectedUnitId={selectedUnitId}
+              selectedUnitIds={selectedUnitIds}
               onSelectUnit={onSelectUnit}
+              onSelectHierarchy={onSelectHierarchy}
               onDeployUnit={onDeployUnit}
               onRemoveUnit={onRemoveUnit}
             />
@@ -116,9 +121,10 @@ function FactionSection({
   faction,
   deployedUnitIds,
   hidden,
-  selectedUnitId,
+  selectedUnitIds,
   onToggleVisible,
   onSelectUnit,
+  onSelectHierarchy,
   onDeployUnit,
   onRemoveUnit,
 }: {
@@ -126,9 +132,10 @@ function FactionSection({
   faction: Faction;
   deployedUnitIds: ReadonlySet<string>;
   hidden: boolean;
-  selectedUnitId: string | null;
+  selectedUnitIds: readonly string[];
   onToggleVisible: () => void;
-  onSelectUnit: (unitId: string) => void;
+  onSelectUnit: (unitId: string, additive: boolean) => void;
+  onSelectHierarchy: (unitId: string) => void;
   onDeployUnit: (unitId: string) => void;
   onRemoveUnit: (unitId: string) => void;
 }) {
@@ -177,8 +184,9 @@ function FactionSection({
               unit={unit}
               depth={0}
               deployedUnitIds={deployedUnitIds}
-              selectedUnitId={selectedUnitId}
+              selectedUnitIds={selectedUnitIds}
               onSelectUnit={onSelectUnit}
+              onSelectHierarchy={onSelectHierarchy}
               onDeployUnit={onDeployUnit}
               onRemoveUnit={onRemoveUnit}
             />
@@ -193,11 +201,27 @@ export function ScenarioOrderOfBattle({ scenario }: ScenarioOrderOfBattleProps) 
   const phase = activeScenarioPhase(scenario);
   const deployedUnitIds = new Set(Object.keys(phase?.unitStates ?? {}));
   const hiddenFactionIds = useScenarioEditorStore((state) => state.hiddenFactionIds);
-  const selectedUnitId = useScenarioEditorStore((state) => state.selectedUnitId);
+  const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
   const selectUnit = useScenarioEditorStore((state) => state.selectUnit);
+  const selectUnits = useScenarioEditorStore((state) => state.selectUnits);
+  const toggleUnitSelection = useScenarioEditorStore((state) => state.toggleUnitSelection);
   const beginPlacement = useScenarioEditorStore((state) => state.beginPlacement);
   const toggleFactionVisible = useScenarioEditorStore((state) => state.toggleFactionVisible);
   const undeployUnit = useScenarioStore((state) => state.undeployUnit);
+
+  const handleSelectUnit = (unitId: string, additive: boolean): void => {
+    if (additive) {
+      toggleUnitSelection(unitId);
+    } else {
+      selectUnit(unitId);
+    }
+  };
+
+  const handleSelectHierarchy = (unitId: string): void => {
+    const hierarchyIds = [unitId, ...descendantUnitIds(scenario.rosterSnapshot, unitId)];
+    const deployedHierarchyIds = hierarchyIds.filter((id) => deployedUnitIds.has(id));
+    selectUnits(deployedHierarchyIds);
+  };
 
   return (
     <aside
@@ -223,9 +247,10 @@ export function ScenarioOrderOfBattle({ scenario }: ScenarioOrderOfBattleProps) 
             faction={faction}
             deployedUnitIds={deployedUnitIds}
             hidden={hiddenFactionIds.includes(faction.id)}
-            selectedUnitId={selectedUnitId}
+            selectedUnitIds={selectedUnitIds}
             onToggleVisible={() => toggleFactionVisible(faction.id)}
-            onSelectUnit={selectUnit}
+            onSelectUnit={handleSelectUnit}
+            onSelectHierarchy={handleSelectHierarchy}
             onDeployUnit={beginPlacement}
             onRemoveUnit={(unitId) => {
               undeployUnit(unitId);
@@ -236,8 +261,8 @@ export function ScenarioOrderOfBattle({ scenario }: ScenarioOrderOfBattleProps) 
 
       <p className="border-t border-[#e0d6c1] px-3 py-2 text-[0.62rem] leading-4 text-[#7c715c]">
         Choose Deploy, then click the map to place a formation. Parent formations also place their
-        undeployed subordinates in front. Select a deployed formation to drag, rotate, resize its
-        frontage, or edit its label.
+        undeployed subordinates in front. Shift-click to add formations to the selection, or
+        double-click a parent to select its deployed command.
       </p>
     </aside>
   );

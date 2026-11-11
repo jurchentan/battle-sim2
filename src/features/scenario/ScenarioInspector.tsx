@@ -211,14 +211,111 @@ function FeatureInspector({
   );
 }
 
+function MultiUnitInspector({
+  scenario,
+  units,
+}: {
+  scenario: BattleScenario;
+  units: UnitDefinition[];
+}) {
+  const phase = activeScenarioPhase(scenario);
+  const updateUnitStates = useScenarioStore((store) => store.updateUnitStates);
+  const undeployUnits = useScenarioStore((store) => store.undeployUnits);
+  const selectUnits = useScenarioEditorStore((store) => store.selectUnits);
+  const deployedUnits = units.filter((unit) => phase?.unitStates[unit.id]);
+  const primaryState = deployedUnits[0] ? phase?.unitStates[deployedUnits[0].id] : undefined;
+
+  const setRotation = (rotationDegrees: number): void => {
+    updateUnitStates(
+      Object.fromEntries(deployedUnits.map((unit) => [unit.id, { rotationDegrees }] as const)),
+    );
+  };
+
+  const removeSelected = (): void => {
+    undeployUnits(deployedUnits.map((unit) => unit.id));
+    selectUnits([]);
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className={sectionHeadingClass}>Multiple formations</p>
+        <p
+          data-testid="selected-unit-count"
+          className="font-display mt-1 text-lg font-semibold text-[#2f2b23]"
+        >
+          {units.length} formations selected
+        </p>
+        <p className="mt-0.5 text-xs text-[#7c715c]">
+          {deployedUnits.length} on the map in {phase?.name ?? 'the active phase'}
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <h4 className={sectionHeadingClass}>Bulk transform</h4>
+        <NumberField
+          label="Rotation (all selected)"
+          value={primaryState?.rotationDegrees ?? 0}
+          step={1}
+          onCommit={setRotation}
+        />
+        <p className="text-[0.68rem] leading-4 text-[#7c715c]">
+          Drag any selected formation to move the whole group. The transformer&apos;s top handle
+          rotates every selected formation around the group centre.
+        </p>
+      </div>
+
+      <div>
+        <h4 className={sectionHeadingClass}>Selection</h4>
+        <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
+          {units.map((unit) => {
+            const faction = scenario.rosterSnapshot.factions.find(
+              (candidate) => candidate.id === unit.factionId,
+            );
+            return (
+              <li
+                key={unit.id}
+                className="flex items-baseline justify-between gap-2 border-b border-dashed border-[#ded3bd] py-1 text-xs"
+              >
+                <span className="min-w-0 truncate font-medium text-[#4a4438]">
+                  {unitDisplayName(scenario.rosterSnapshot, unit)}
+                </span>
+                <span className="shrink-0 text-[0.62rem] text-[#857a64]">
+                  {ECHELON_LABELS[unit.echelon]} · {faction?.name ?? 'Unknown'}
+                  {phase?.unitStates[unit.id] ? '' : ' · not deployed'}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {deployedUnits.length > 0 ? (
+        <button
+          type="button"
+          data-testid="remove-selected-units"
+          className={dangerButtonClass}
+          onClick={removeSelected}
+        >
+          Remove selected from map
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function ScenarioInspector({ scenario }: { scenario: BattleScenario }) {
   const mode = useScenarioEditorStore((state) => state.mode);
-  const selectedUnitId = useScenarioEditorStore((state) => state.selectedUnitId);
+  const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
   const selectedFeatureId = useScenarioEditorStore((state) => state.selectedFeatureId);
-  const selectedUnit =
+  const selectedUnits =
     mode === 'units'
-      ? scenario.rosterSnapshot.units.find((unit) => unit.id === selectedUnitId)
-      : undefined;
+      ? selectedUnitIds.flatMap((unitId) => {
+          const unit = scenario.rosterSnapshot.units.find((candidate) => candidate.id === unitId);
+          return unit ? [unit] : [];
+        })
+      : [];
+  const selectedUnit = selectedUnits.length === 1 ? selectedUnits[0] : undefined;
   const selectedFeature =
     mode === 'terrain'
       ? scenario.terrainSnapshot.features.find((feature) => feature.id === selectedFeatureId)
@@ -240,6 +337,8 @@ export function ScenarioInspector({ scenario }: { scenario: BattleScenario }) {
       <div className="flex-1 overflow-y-auto p-3">
         {selectedUnit ? (
           <UnitInspector key={selectedUnit.id} scenario={scenario} unit={selectedUnit} />
+        ) : selectedUnits.length > 1 ? (
+          <MultiUnitInspector scenario={scenario} units={selectedUnits} />
         ) : selectedFeature ? (
           <FeatureInspector scenario={scenario} feature={selectedFeature} />
         ) : (

@@ -202,6 +202,90 @@ describe('scenario store', () => {
     expect(activeState()?.unitStates['gate-brigade-1']?.labelOverride).toBeUndefined();
   });
 
+  it('moves and rotates several formations in one history entry', () => {
+    unwrap(
+      useScenarioStore.getState().createScenario({
+        name: 'Gate Scenario',
+        terrain: createSeedTerrainMap(),
+        roster: gateRoster(),
+      }),
+    );
+    deployGateBrigades(3);
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    unwrap(
+      useScenarioStore.getState().updateUnitStates({
+        'gate-brigade-1': { x: 300, y: 400, rotationDegrees: 30 },
+        'gate-brigade-2': { x: 340, y: 440, rotationDegrees: 30 },
+      }),
+    );
+
+    expect(activeState()?.unitStates['gate-brigade-1']).toMatchObject({
+      x: 300,
+      y: 400,
+      rotationDegrees: 30,
+    });
+    expect(activeState()?.unitStates['gate-brigade-2']).toMatchObject({
+      x: 340,
+      y: 440,
+      rotationDegrees: 30,
+    });
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore + 1);
+
+    useScenarioStore.getState().undo();
+    expect(activeState()?.unitStates['gate-brigade-1']?.x).not.toBe(300);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore);
+
+    useScenarioStore.getState().redo();
+    expect(activeState()?.unitStates['gate-brigade-1']?.x).toBe(300);
+  });
+
+  it('rejects an invalid bulk patch without changing history or other formations', () => {
+    unwrap(
+      useScenarioStore.getState().createScenario({
+        name: 'Gate Scenario',
+        terrain: createSeedTerrainMap(),
+        roster: gateRoster(),
+      }),
+    );
+    deployGateBrigades(2);
+    const before = useScenarioStore.getState().document;
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    const result = useScenarioStore.getState().updateUnitStates({
+      'gate-brigade-1': { x: 400 },
+      'gate-brigade-2': { frontageLength: 0 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(useScenarioStore.getState().document).toBe(before);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore);
+  });
+
+  it('undeploys a multi-selection in one history entry', () => {
+    unwrap(
+      useScenarioStore.getState().createScenario({
+        name: 'Gate Scenario',
+        terrain: createSeedTerrainMap(),
+        roster: gateRoster(),
+      }),
+    );
+    deployGateBrigades(4);
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    unwrap(
+      useScenarioStore
+        .getState()
+        .undeployUnits(['gate-brigade-1', 'gate-brigade-3', 'gate-brigade-1']),
+    );
+
+    expect(Object.keys(activeState()?.unitStates ?? {})).toHaveLength(2);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore + 1);
+
+    useScenarioStore.getState().undo();
+    expect(Object.keys(activeState()?.unitStates ?? {})).toHaveLength(4);
+  });
+
   it('undeploys a formation and supports undo and redo', () => {
     unwrap(
       useScenarioStore.getState().createScenario({

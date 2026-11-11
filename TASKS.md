@@ -95,6 +95,9 @@ and reopen.
 - [x] Select, drag, rotate with screen-space handles, resize frontage, edit labels
 - [x] Direct removal from the inspector and order of battle, with undo
 - [x] Faction visibility filters
+- [x] Marquee, Shift-click, and hierarchy double-click multi-selection
+- [x] Group drag and group rotation with one undo entry per gesture
+- [x] Bulk rotation, bulk removal, and Delete-key removal for a multi-selection
 - [x] Separate terrain and unit editing modes
 
 Gate: deploy at least 20 brigades without changing terrain; edits to library

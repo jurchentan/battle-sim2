@@ -21,7 +21,7 @@ describe('scenario editor store', () => {
 
     expect(useScenarioEditorStore.getState()).toMatchObject({
       mode: 'terrain',
-      selectedUnitId: null,
+      selectedUnitIds: [],
       selectedFeatureId: null,
       placementUnitId: null,
     });
@@ -30,16 +30,40 @@ describe('scenario editor store', () => {
     expect(useScenarioEditorStore.getState()).toMatchObject({
       mode: 'terrain',
       selectedFeatureId: 'feature-a',
-      selectedUnitId: null,
+      selectedUnitIds: [],
       placementUnitId: null,
     });
 
     useScenarioEditorStore.getState().selectUnit('unit-c');
     expect(useScenarioEditorStore.getState()).toMatchObject({
       mode: 'units',
-      selectedUnitId: 'unit-c',
+      selectedUnitIds: ['unit-c'],
       selectedFeatureId: null,
     });
+  });
+
+  it('supports additive and range-style multi-unit selection', () => {
+    const store = useScenarioEditorStore.getState();
+    store.selectUnits(['unit-a', 'unit-b', 'unit-a', '']);
+
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-a', 'unit-b']);
+    expect(useScenarioEditorStore.getState().mode).toBe('units');
+
+    useScenarioEditorStore.getState().toggleUnitSelection('unit-b');
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-a']);
+
+    useScenarioEditorStore.getState().toggleUnitSelection('unit-c');
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-a', 'unit-c']);
+
+    useScenarioEditorStore.getState().ensureUnitSelected('unit-a', false);
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-a', 'unit-c']);
+
+    useScenarioEditorStore.getState().selectUnit('unit-d');
+    useScenarioEditorStore.getState().ensureUnitSelected('unit-e', true);
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-d', 'unit-e']);
+
+    useScenarioEditorStore.getState().ensureUnitSelected('unit-f', false);
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-f']);
   });
 
   it('starts placement in units mode and cancels it', () => {
@@ -48,14 +72,14 @@ describe('scenario editor store', () => {
 
     expect(useScenarioEditorStore.getState()).toMatchObject({
       mode: 'units',
-      selectedUnitId: 'unit-a',
+      selectedUnitIds: ['unit-a'],
       selectedFeatureId: null,
       placementUnitId: 'unit-a',
     });
 
     useScenarioEditorStore.getState().cancelPlacement();
     expect(useScenarioEditorStore.getState().placementUnitId).toBeNull();
-    expect(useScenarioEditorStore.getState().selectedUnitId).toBe('unit-a');
+    expect(useScenarioEditorStore.getState().selectedUnitIds).toEqual(['unit-a']);
   });
 
   it('toggles faction and terrain-layer visibility without duplicates', () => {
@@ -84,7 +108,7 @@ describe('scenario editor store', () => {
 
     expect(useScenarioEditorStore.getState()).toMatchObject({
       mode: 'units',
-      selectedUnitId: null,
+      selectedUnitIds: [],
       selectedFeatureId: null,
       hiddenFactionIds: [],
       hiddenTerrainLayerIds: [],

@@ -11,7 +11,7 @@ import { useScenarioStore } from '../../state/scenarioStore';
 export function ScenarioWorkspace() {
   const scenario = useScenarioStore((state) => state.document);
   const mode = useScenarioEditorStore((state) => state.mode);
-  const selectedUnitId = useScenarioEditorStore((state) => state.selectedUnitId);
+  const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
   const selectedFeatureId = useScenarioEditorStore((state) => state.selectedFeatureId);
   const hiddenFactionIds = useScenarioEditorStore((state) => state.hiddenFactionIds);
   const hiddenTerrainLayerIds = useScenarioEditorStore((state) => state.hiddenTerrainLayerIds);
@@ -24,13 +24,16 @@ export function ScenarioWorkspace() {
   }, [resetForScenario, scenario.id]);
 
   useEffect(() => {
-    if (!selectedUnitId) return;
+    if (selectedUnitIds.length === 0) return;
 
-    const unit = scenario.rosterSnapshot.units.find((candidate) => candidate.id === selectedUnitId);
-    if (!unit || hiddenFactionIds.includes(unit.factionId)) {
-      useScenarioEditorStore.getState().selectUnit(null);
+    const selectableUnitIds = selectedUnitIds.filter((unitId) => {
+      const unit = scenario.rosterSnapshot.units.find((candidate) => candidate.id === unitId);
+      return unit && !hiddenFactionIds.includes(unit.factionId);
+    });
+    if (selectableUnitIds.length !== selectedUnitIds.length) {
+      useScenarioEditorStore.getState().selectUnits(selectableUnitIds);
     }
-  }, [hiddenFactionIds, scenario.rosterSnapshot.units, selectedUnitId]);
+  }, [hiddenFactionIds, scenario.rosterSnapshot.units, selectedUnitIds]);
 
   useEffect(() => {
     if (!selectedFeatureId) return;

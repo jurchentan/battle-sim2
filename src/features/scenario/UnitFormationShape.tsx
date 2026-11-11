@@ -14,13 +14,19 @@ interface UnitFormationShapeProps {
   labelFontSize: number;
   uppercaseLabel: boolean;
   interactive: boolean;
-  onSelect: (unitId: string) => void;
-  onChange: (patch: Partial<UnitPhaseState>) => void;
+  onSelect: (unitId: string, additive: boolean) => void;
+  onSelectHierarchy: (unitId: string) => void;
+  onDragStart: (unitId: string, additive: boolean, node: Konva.Node) => void;
+  onDragMove: (unitId: string, node: Konva.Node) => void;
+  onDragEnd: (unitId: string, node: Konva.Node) => void;
+  onTransformEnd: (unitId: string, patch: Partial<UnitPhaseState>) => void;
   registerNode: (unitId: string, node: Konva.Node | null) => void;
+  registerLabelNode: (unitId: string, node: Konva.Node | null) => void;
 }
 
 const LABEL_GAP = 8;
 const LABEL_FONT_FAMILY = 'Georgia, serif';
+const CLICK_AFTER_DRAG_GUARD_MS = 200;
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
 
@@ -45,6 +51,10 @@ function normalizeDegrees(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function additiveSelection(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): boolean {
+  return 'shiftKey' in event.evt ? event.evt.shiftKey : false;
+}
+
 export function UnitFormationShape({
   unit,
   faction,
@@ -56,8 +66,13 @@ export function UnitFormationShape({
   uppercaseLabel,
   interactive,
   onSelect,
-  onChange,
+  onSelectHierarchy,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  onTransformEnd,
   registerNode,
+  registerLabelNode,
 }: UnitFormationShapeProps) {
   const thickness = Math.max(2, unit.defaultSymbolStyle.thickness);
   const rectangleHeight = Math.max(6, thickness);
@@ -74,6 +89,7 @@ export function UnitFormationShape({
   const labelTextRotation = flipLabel ? 180 : 0;
   const shapeRef = useRef<Konva.Group | null>(null);
   const labelRef = useRef<Konva.Group | null>(null);
+  const lastDragEndRef = useRef(0);
   const setShapeNode = useCallback(
     (node: Konva.Group | null) => {
       shapeRef.current = node;
@@ -81,22 +97,35 @@ export function UnitFormationShape({
     },
     [registerNode, unit.id],
   );
-  const setLabelNode = useCallback((node: Konva.Group | null) => {
-    labelRef.current = node;
-  }, []);
+  const setLabelNode = useCallback(
+    (node: Konva.Group | null) => {
+      labelRef.current = node;
+      registerLabelNode(unit.id, node);
+    },
+    [registerLabelNode, unit.id],
+  );
 
   const handleSelect = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void => {
     if (!interactive) return;
     event.cancelBubble = true;
-    onSelect(unit.id);
+    if (performance.now() - lastDragEndRef.current < CLICK_AFTER_DRAG_GUARD_MS) return;
+    onSelect(unit.id, additiveSelection(event));
+  };
+
+  const handleSelectHierarchy = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void => {
+    if (!interactive) return;
+    event.cancelBubble = true;
+    if (performance.now() - lastDragEndRef.current < CLICK_AFTER_DRAG_GUARD_MS) return;
+    onSelectHierarchy(unit.id);
+  };
+
+  const handleDragStart = (event: Konva.KonvaEventObject<DragEvent>): void => {
+    onDragStart(unit.id, additiveSelection(event), event.target as Konva.Node);
   };
 
   const handleDragEnd = (event: Konva.KonvaEventObject<DragEvent>): void => {
-    const node = event.target;
-    const x = Math.round(node.x() * 100) / 100;
-    const y = Math.round(node.y() * 100) / 100;
-    if (x === state.x && y === state.y) return;
-    onChange({ x, y });
+    lastDragEndRef.current = performance.now();
+    onDragEnd(unit.id, event.target as Konva.Node);
   };
 
   const handleTransformEnd = (event: Konva.KonvaEventObject<Event>): void => {
@@ -118,12 +147,15 @@ export function UnitFormationShape({
       return;
     }
 
-    onChange({
+    const patch: Partial<UnitPhaseState> = {
       x,
       y,
       rotationDegrees,
-      frontageLength: Math.max(20, frontageLength),
-    });
+    };
+    if (frontageLength !== state.frontageLength) {
+      patch.frontageLength = Math.max(20, frontageLength);
+    }
+    onTransformEnd(unit.id, patch);
   };
 
   const mirrorDragPosition = (event: Konva.KonvaEventObject<DragEvent>): void => {
@@ -133,6 +165,7 @@ export function UnitFormationShape({
     } else if (target === labelRef.current && shapeRef.current) {
       shapeRef.current.position({ x: target.x(), y: target.y() });
     }
+    onDragMove(unit.id, target);
   };
 
   const mirrorTransform = (event: Konva.KonvaEventObject<Event>): void => {
@@ -146,7 +179,9 @@ export function UnitFormationShape({
   const dragHandlers = {
     onClick: handleSelect,
     onTap: handleSelect,
-    onDragStart: () => onSelect(unit.id),
+    onDblClick: handleSelectHierarchy,
+    onDblTap: handleSelectHierarchy,
+    onDragStart: handleDragStart,
     onDragMove: mirrorDragPosition,
     onDragEnd: handleDragEnd,
   };

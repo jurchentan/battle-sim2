@@ -4,8 +4,7 @@ import { useScenarioStore } from '../../state/scenarioStore';
 import { isTypingTarget } from '../terrain/useEditorShortcuts';
 
 export function useScenarioShortcuts(): void {
-  const selectedUnitId = useScenarioEditorStore((state) => state.selectedUnitId);
-  const selectUnit = useScenarioEditorStore((state) => state.selectUnit);
+  const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
   const undo = useScenarioStore((state) => state.undo);
   const redo = useScenarioStore((state) => state.redo);
 
@@ -34,14 +33,18 @@ export function useScenarioShortcuts(): void {
 
       if (meta || event.altKey) return;
 
-      if ((key === 'delete' || key === 'backspace') && selectedUnitId) {
+      if ((key === 'delete' || key === 'backspace') && selectedUnitIds.length > 0) {
         event.preventDefault();
-        useScenarioStore.getState().undeployUnit(selectedUnitId);
-        selectUnit(selectedUnitId);
+        useScenarioStore.getState().undeployUnits(selectedUnitIds);
+        if (selectedUnitIds.length === 1) {
+          useScenarioEditorStore.getState().selectUnit(selectedUnitIds[0] ?? null);
+        } else {
+          useScenarioEditorStore.getState().selectUnits([]);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [redo, selectUnit, selectedUnitId, undo]);
+  }, [redo, selectedUnitIds, undo]);
 }

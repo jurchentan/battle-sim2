@@ -12,7 +12,7 @@ export type ScenarioMode = 'terrain' | 'units';
 
 interface ScenarioEditorState {
   mode: ScenarioMode;
-  selectedUnitId: string | null;
+  selectedUnitIds: string[];
   selectedFeatureId: string | null;
   hiddenFactionIds: string[];
   hiddenTerrainLayerIds: string[];
@@ -23,6 +23,9 @@ interface ScenarioEditorState {
   dynamicFrontage: boolean;
   setMode: (mode: ScenarioMode) => void;
   selectUnit: (unitId: string | null) => void;
+  selectUnits: (unitIds: readonly string[]) => void;
+  toggleUnitSelection: (unitId: string) => void;
+  ensureUnitSelected: (unitId: string, additive: boolean) => void;
   selectFeature: (featureId: string | null) => void;
   beginPlacement: (unitId: string) => void;
   cancelPlacement: () => void;
@@ -36,9 +39,13 @@ interface ScenarioEditorState {
   resetForScenario: () => void;
 }
 
+function uniqueUnitIds(unitIds: readonly string[]): string[] {
+  return [...new Set(unitIds.filter(Boolean))];
+}
+
 export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
   mode: 'units',
-  selectedUnitId: null,
+  selectedUnitIds: [],
   selectedFeatureId: null,
   hiddenFactionIds: [],
   hiddenTerrainLayerIds: [],
@@ -51,22 +58,66 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
   setMode: (mode) =>
     set({
       mode,
-      selectedUnitId: null,
+      selectedUnitIds: [],
       selectedFeatureId: null,
       placementUnitId: null,
     }),
 
-  selectUnit: (selectedUnitId) =>
+  selectUnit: (unitId) =>
     set((state) => ({
-      selectedUnitId,
+      selectedUnitIds: unitId === null ? [] : [unitId],
       selectedFeatureId: null,
-      mode: selectedUnitId === null ? state.mode : 'units',
+      placementUnitId: null,
+      mode: unitId === null ? state.mode : 'units',
     })),
+
+  selectUnits: (unitIds) =>
+    set((state) => {
+      const selectedUnitIds = uniqueUnitIds(unitIds);
+      return {
+        selectedUnitIds,
+        selectedFeatureId: null,
+        placementUnitId: null,
+        mode: selectedUnitIds.length === 0 ? state.mode : 'units',
+      };
+    }),
+
+  toggleUnitSelection: (unitId) =>
+    set((state) => {
+      const selectedUnitIds = state.selectedUnitIds.includes(unitId)
+        ? state.selectedUnitIds.filter((id) => id !== unitId)
+        : [...state.selectedUnitIds, unitId];
+      return {
+        selectedUnitIds,
+        selectedFeatureId: null,
+        placementUnitId: null,
+        mode: 'units',
+      };
+    }),
+
+  ensureUnitSelected: (unitId, additive) =>
+    set((state) => {
+      if (state.selectedUnitIds.includes(unitId)) {
+        return {
+          selectedUnitIds: state.selectedUnitIds,
+          selectedFeatureId: null,
+          placementUnitId: null,
+          mode: 'units',
+        };
+      }
+
+      return {
+        selectedUnitIds: additive ? [...state.selectedUnitIds, unitId] : [unitId],
+        selectedFeatureId: null,
+        placementUnitId: null,
+        mode: 'units',
+      };
+    }),
 
   selectFeature: (selectedFeatureId) =>
     set((state) => ({
       selectedFeatureId,
-      selectedUnitId: null,
+      selectedUnitIds: [],
       placementUnitId: null,
       mode: selectedFeatureId === null ? state.mode : 'terrain',
     })),
@@ -74,7 +125,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
   beginPlacement: (unitId) =>
     set({
       mode: 'units',
-      selectedUnitId: unitId,
+      selectedUnitIds: [unitId],
       selectedFeatureId: null,
       placementUnitId: unitId,
     }),
@@ -126,7 +177,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
   resetForScenario: () =>
     set({
       mode: 'units',
-      selectedUnitId: null,
+      selectedUnitIds: [],
       selectedFeatureId: null,
       hiddenFactionIds: [],
       hiddenTerrainLayerIds: [],

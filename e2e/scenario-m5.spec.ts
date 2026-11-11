@@ -397,6 +397,297 @@ test('renders higher echelons as text and applies display settings', async ({ pa
   expect(resetLabelFormats).toEqual(initialLabelFormats);
 });
 
+test('bulk-selects formations by marquee, Shift-click, and hierarchy double-click', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Scenario Editor' }).click();
+  await expect(page.getByRole('heading', { name: 'Scenario Editor' })).toBeVisible();
+
+  const canvas = page.getByTestId('scenario-canvas');
+  let box = await canvas.boundingBox();
+  if (!box) throw new Error('Scenario canvas has no bounding box');
+
+  const screenPoint = (worldX: number, worldY: number) => {
+    if (!box) throw new Error('Scenario canvas has no bounding box');
+    const scale = Math.min((box.width - 96) / 2000, (box.height - 96) / 1400);
+    const offsetX = (box.width - 2000 * scale) / 2;
+    const offsetY = (box.height - 1400 * scale) / 2;
+    return {
+      x: box.x + offsetX + worldX * scale,
+      y: box.y + offsetY + worldY * scale,
+    };
+  };
+
+  const selectedStates = async (): Promise<
+    Record<string, { x: number; y: number; rotationDegrees: number }>
+  > => JSON.parse((await canvas.getAttribute('data-selected-states')) ?? '{}');
+
+  // 1. Desktop-style marquee selection from empty canvas.
+  const marqueeStart = screenPoint(620, 450);
+  const marqueeEnd = screenPoint(960, 690);
+  await page.mouse.move(marqueeStart.x, marqueeStart.y);
+  await page.mouse.down();
+  await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 8 });
+  await expect(canvas).toHaveAttribute('data-marquee-active', 'true');
+  await page.mouse.up();
+  await expect(canvas).toHaveAttribute('data-marquee-active', 'false');
+  await expect(canvas).toHaveAttribute('data-selected-count', '3');
+  await expect(canvas).toHaveAttribute('data-selected-kind', 'multiple');
+  await expect(page.getByTestId('selected-unit-count')).toHaveText('3 formations selected');
+
+  // 2. Shift-click builds a selection; shift-clicking an item removes it again.
+  const emptyPoint = screenPoint(100, 100);
+  await page.mouse.click(emptyPoint.x, emptyPoint.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '0');
+
+  const firstBrigade = screenPoint(700, 520);
+  const secondBrigade = screenPoint(880, 560);
+  await page.mouse.click(firstBrigade.x, firstBrigade.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '1');
+  await page.keyboard.down('Shift');
+  await page.mouse.click(secondBrigade.x, secondBrigade.y);
+  await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-selected-count', '2');
+
+  const beforeMove = await selectedStates();
+  const firstStart = beforeMove['unit-north-brigade-1'];
+  const secondStart = beforeMove['unit-north-brigade-2'];
+  if (!firstStart || !secondStart) throw new Error('The expected brigades were not selected');
+
+  await page.mouse.move(firstBrigade.x, firstBrigade.y);
+  await page.mouse.down();
+  await page.mouse.move(firstBrigade.x + 50, firstBrigade.y + 35, { steps: 6 });
+  await page.mouse.up();
+
+  // Dragging one member moves the whole selection and keeps it selected.
+  await expect(canvas).toHaveAttribute('data-selected-count', '2');
+  const afterMove = await selectedStates();
+  const firstMoved = afterMove['unit-north-brigade-1'];
+  const secondMoved = afterMove['unit-north-brigade-2'];
+  if (!firstMoved || !secondMoved) throw new Error('Bulk movement lost the selection');
+  expect(firstMoved.x).toBeGreaterThan(firstStart.x);
+  expect(secondMoved.x).toBeGreaterThan(secondStart.x);
+  expect(firstMoved.x - firstStart.x).toBeCloseTo(secondMoved.x - secondStart.x, 1);
+  expect(firstMoved.y - firstStart.y).toBeCloseTo(secondMoved.y - secondStart.y, 1);
+
+  // The inspector rotates the entire selection as one undoable edit.
+  const bulkRotation = page.getByLabel('Rotation (all selected)');
+  await bulkRotation.fill('30');
+  await bulkRotation.press('Enter');
+  await expect
+    .poll(async () => {
+      const states = await selectedStates();
+      return [
+        states['unit-north-brigade-1']?.rotationDegrees,
+        states['unit-north-brigade-2']?.rotationDegrees,
+      ];
+    })
+    .toEqual([30, 30]);
+
+  await page.keyboard.down('Shift');
+  await page.mouse.click(secondBrigade.x + 50, secondBrigade.y + 35);
+  await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-selected-count', '1');
+
+  // 3. Double-click a parent to select its deployed command.
+  await page.mouse.click(emptyPoint.x, emptyPoint.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '0');
+  await page.getByRole('button', { name: 'Deploy I Corps', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-placement', 'true');
+  const corpsPoint = screenPoint(400, 300);
+  await page.mouse.click(corpsPoint.x, corpsPoint.y);
+  await expect(canvas).toHaveAttribute('data-visible-formations', '8');
+
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Scenario canvas has no bounding box after deploying a corps');
+  const corpsClickPoint = screenPoint(400, 300);
+  await page.mouse.dblclick(corpsClickPoint.x, corpsClickPoint.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '5');
+  await expect(page.getByTestId('selected-unit-count')).toHaveText('5 formations selected');
+
+  const hierarchyStates = await selectedStates();
+  expect(Object.keys(hierarchyStates).sort()).toEqual(
+    [
+      'unit-north-brigade-1',
+      'unit-north-brigade-2',
+      'unit-north-brigade-3',
+      'unit-north-corps',
+      'unit-north-division',
+    ].sort(),
+  );
+});
+
+test('rotates the group with the transformer handle and keeps bulk edits atomic', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Scenario Editor' }).click();
+  await expect(page.getByRole('heading', { name: 'Scenario Editor' })).toBeVisible();
+
+  const canvas = page.getByTestId('scenario-canvas');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Scenario canvas has no bounding box');
+
+  const scale = Math.min((box.width - 96) / 2000, (box.height - 96) / 1400);
+  const offsetX = (box.width - 2000 * scale) / 2;
+  const offsetY = (box.height - 1400 * scale) / 2;
+  const screenPoint = (worldX: number, worldY: number) => ({
+    x: box.x + offsetX + worldX * scale,
+    y: box.y + offsetY + worldY * scale,
+  });
+
+  type SelectedStates = Record<
+    string,
+    { x: number; y: number; rotationDegrees: number; frontageLength: number }
+  >;
+  const selectedStates = async (): Promise<SelectedStates> =>
+    JSON.parse((await canvas.getAttribute('data-selected-states')) ?? '{}');
+  const rotations = async (): Promise<string> => {
+    const states = await selectedStates();
+    return ['unit-north-brigade-1', 'unit-north-brigade-2']
+      .map((unitId) => states[unitId]?.rotationDegrees ?? 'missing')
+      .join(',');
+  };
+
+  // 1. Shift-drag marquee unions with the existing selection.
+  const thirdBrigade = screenPoint(760, 640);
+  await page.mouse.click(thirdBrigade.x, thirdBrigade.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '1');
+
+  await page.keyboard.down('Shift');
+  const marqueeStart = screenPoint(600, 460);
+  const marqueeEnd = screenPoint(960, 580);
+  await page.mouse.move(marqueeStart.x, marqueeStart.y);
+  await page.mouse.down();
+  await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-selected-count', '3');
+  expect(JSON.parse((await canvas.getAttribute('data-selected-unit-ids')) ?? '[]').sort()).toEqual([
+    'unit-north-brigade-1',
+    'unit-north-brigade-2',
+    'unit-north-brigade-3',
+  ]);
+
+  // 2. Hiding a faction removes its formations from a multi-selection.
+  await page.mouse.click(screenPoint(100, 100).x, screenPoint(100, 100).y);
+  await page.mouse.click(screenPoint(700, 520).x, screenPoint(700, 520).y);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(screenPoint(1050, 820).x, screenPoint(1050, 820).y);
+  await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-selected-count', '2');
+
+  const northVisibility = page.getByRole('checkbox', { name: 'Show faction Northern League' });
+  await northVisibility.uncheck();
+  await expect(canvas).toHaveAttribute('data-selected-count', '1');
+  expect(JSON.parse((await canvas.getAttribute('data-selected-unit-ids')) ?? '[]')).toEqual([
+    'unit-south-brigade-1',
+  ]);
+  await northVisibility.check();
+
+  // 3. Rotate both formations through the multi-node transformer handle.
+  await page.mouse.click(screenPoint(700, 520).x, screenPoint(700, 520).y);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(screenPoint(880, 560).x, screenPoint(880, 560).y);
+  await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-selected-count', '2');
+
+  // Reset both rotations first so the group box and handle position are exact.
+  // The first commit needs a non-zero value because the field's primary
+  // formation already sits at 0 and unchanged drafts are not committed.
+  const bulkRotation = page.getByLabel('Rotation (all selected)');
+  await bulkRotation.fill('7');
+  await bulkRotation.press('Enter');
+  await expect.poll(rotations).toBe('7,7');
+  await bulkRotation.fill('0');
+  await bulkRotation.press('Enter');
+  await expect.poll(rotations).toBe('0,0');
+
+  // Brigade 1 spans x 640-760 and brigade 2 spans x 830-930 at rotation 0.
+  // Their rectangle top is 3.5 world units above each centre; the transformer
+  // rotation handle sits 32 screen pixels above that shared top edge.
+  const groupCenterX = (640 + 930) / 2;
+  const groupTopY = 520 - 3.5;
+  const handle = screenPoint(groupCenterX, groupTopY);
+  await page.mouse.move(handle.x, handle.y - 32);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 60, handle.y - 26, { steps: 8 });
+  await page.mouse.up();
+
+  await expect.poll(async () => (await rotations()) !== '0,0').toBe(true);
+  const rotated = await selectedStates();
+  const firstRotated = rotated['unit-north-brigade-1'];
+  const secondRotated = rotated['unit-north-brigade-2'];
+  if (!firstRotated || !secondRotated) throw new Error('Group rotation lost the selection');
+  expect(firstRotated.rotationDegrees).toBeCloseTo(secondRotated.rotationDegrees, 0);
+  expect(rotated['unit-north-brigade-1']?.frontageLength).toBe(120);
+
+  // A group rotation is one undo entry for every selected formation.
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(rotations).toBe('0,0');
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect.poll(async () => (await rotations()) !== '0,0').toBe(true);
+
+  // 4. Drag the group by a rotated rectangle label; labels are separate nodes.
+  const rotatedBeforeDrag = await selectedStates();
+  const leader = rotatedBeforeDrag['unit-north-brigade-1'];
+  if (!leader) throw new Error('The rotated leader formation is missing');
+  const labelDistance = 3.5 + 8 + (28 * 1.3) / 2;
+  const angle = (leader.rotationDegrees * Math.PI) / 180;
+  const labelPoint = screenPoint(
+    leader.x + Math.sin(angle) * labelDistance,
+    leader.y - Math.cos(angle) * labelDistance,
+  );
+
+  await page.mouse.move(labelPoint.x, labelPoint.y);
+  await page.mouse.down();
+  await page.mouse.move(labelPoint.x + 44, labelPoint.y + 28, { steps: 6 });
+  await page.mouse.up();
+  await expect(canvas).toHaveAttribute('data-selected-count', '2');
+
+  const afterLabelDrag = await selectedStates();
+  const movedFirst = afterLabelDrag['unit-north-brigade-1'];
+  const movedSecond = afterLabelDrag['unit-north-brigade-2'];
+  const startFirst = rotatedBeforeDrag['unit-north-brigade-1'];
+  const startSecond = rotatedBeforeDrag['unit-north-brigade-2'];
+  if (!movedFirst || !movedSecond || !startFirst || !startSecond) {
+    throw new Error('The rotated formations are missing after the label drag');
+  }
+  expect(movedFirst.x - startFirst.x).toBeCloseTo(movedSecond.x - startSecond.x, 1);
+  expect(movedFirst.y - startFirst.y).toBeCloseTo(movedSecond.y - startSecond.y, 1);
+
+  // The committed label position follows the formation after the drag.
+  await page.mouse.click(screenPoint(100, 100).x, screenPoint(100, 100).y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '0');
+  const movedAngle = (movedFirst.rotationDegrees * Math.PI) / 180;
+  const movedLabelPoint = screenPoint(
+    movedFirst.x + Math.sin(movedAngle) * labelDistance,
+    movedFirst.y - Math.cos(movedAngle) * labelDistance,
+  );
+  await page.mouse.click(movedLabelPoint.x, movedLabelPoint.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '1');
+  await expect(page.getByTestId('selected-unit-name')).toHaveText('1st Brigade');
+
+  // 5. Delete removes the whole selection in one undoable edit.
+  await page.keyboard.down('Shift');
+  await page.mouse.click(
+    screenPoint(movedSecond.x, movedSecond.y).x,
+    screenPoint(movedSecond.x, movedSecond.y).y,
+  );
+  await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-selected-count', '2');
+
+  await page.keyboard.press('Delete');
+  await expect(canvas).toHaveAttribute('data-deployed-count', '4');
+  await expect(canvas).toHaveAttribute('data-visible-formations', '4');
+  await expect(canvas).toHaveAttribute('data-selected-count', '0');
+
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-deployed-count', '6');
+  await expect(canvas).toHaveAttribute('data-visible-formations', '6');
+});
+
 test('selects and drags a rectangle formation by its map label even when names are hidden', async ({
   page,
 }) => {

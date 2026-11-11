@@ -69,9 +69,24 @@ export interface ScenarioEditorStore {
   renameDocument: (name: string) => ScenarioMutationResult;
   placeUnit: (unitId: string, position: Point) => ScenarioMutationResult;
   updateUnitState: (unitId: string, patch: Partial<UnitPhaseState>) => ScenarioMutationResult;
+  updateUnitStates: (patches: Record<string, Partial<UnitPhaseState>>) => ScenarioMutationResult;
   undeployUnit: (unitId: string) => ScenarioMutationResult;
+  undeployUnits: (unitIds: readonly string[]) => ScenarioMutationResult;
   undo: () => void;
   redo: () => void;
+}
+
+function normalizeUnitStatePatch(patch: Partial<UnitPhaseState>): Partial<UnitPhaseState> {
+  const normalized: Partial<UnitPhaseState> = { ...patch };
+  if (patch.labelOverride !== undefined) {
+    const label = patch.labelOverride.trim();
+    normalized.labelOverride = label === '' ? undefined : label;
+  }
+  if (patch.notes !== undefined) {
+    const notes = patch.notes.trim();
+    normalized.notes = notes === '' ? undefined : notes;
+  }
+  return normalized;
 }
 
 export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
@@ -164,17 +179,7 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
     const current = phase.unitStates[unitId];
     if (!current) return { ok: false, error: 'That formation is not deployed in this phase.' };
 
-    const normalized: Partial<UnitPhaseState> = { ...patch };
-    if (patch.labelOverride !== undefined) {
-      const label = patch.labelOverride.trim();
-      normalized.labelOverride = label === '' ? undefined : label;
-    }
-    if (patch.notes !== undefined) {
-      const notes = patch.notes.trim();
-      normalized.notes = notes === '' ? undefined : notes;
-    }
-
-    const nextState: UnitPhaseState = { ...current, ...normalized };
+    const nextState: UnitPhaseState = { ...current, ...normalizeUnitStatePatch(patch) };
 
     const next = commit(
       state,
@@ -190,6 +195,44 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
       }),
     );
     if (!next) return { ok: false, error: 'The formation state is not valid.' };
+
+    set(next);
+    return { ok: true };
+  },
+
+  updateUnitStates: (patches) => {
+    const state = get();
+    const phase = activeScenarioPhase(state.document);
+    if (!phase) return { ok: false, error: 'The active phase could not be found.' };
+
+    const unitIds = Object.keys(patches);
+    if (unitIds.length === 0) return { ok: true };
+
+    for (const unitId of unitIds) {
+      if (!phase.unitStates[unitId]) {
+        return { ok: false, error: 'A selected formation is not deployed in this phase.' };
+      }
+    }
+
+    const nextStates: Record<string, UnitPhaseState> = {};
+    for (const unitId of unitIds) {
+      const current = phase.unitStates[unitId];
+      const patch = patches[unitId];
+      if (!current || !patch) continue;
+      nextStates[unitId] = { ...current, ...normalizeUnitStatePatch(patch) };
+    }
+
+    const next = commit(
+      state,
+      replaceActivePhase(state.document, (activePhase) => {
+        return state.document.phases.map((candidate) =>
+          candidate.id === activePhase.id
+            ? { ...candidate, unitStates: { ...candidate.unitStates, ...nextStates } }
+            : candidate,
+        );
+      }),
+    );
+    if (!next) return { ok: false, error: 'The selected formation states are not valid.' };
 
     set(next);
     return { ok: true };
@@ -215,6 +258,33 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
       }),
     );
     if (!next) return { ok: false, error: 'The formation could not be removed.' };
+
+    set(next);
+    return { ok: true };
+  },
+
+  undeployUnits: (unitIds) => {
+    const state = get();
+    const phase = activeScenarioPhase(state.document);
+    if (!phase) return { ok: false, error: 'The active phase could not be found.' };
+
+    const deployedUnitIds = [...new Set(unitIds)].filter((unitId) => phase.unitStates[unitId]);
+    if (deployedUnitIds.length === 0) return { ok: true };
+
+    const next = commit(
+      state,
+      replaceActivePhase(state.document, (activePhase) => {
+        return state.document.phases.map((candidate) => {
+          if (candidate.id !== activePhase.id) return candidate;
+          const unitStates = { ...candidate.unitStates };
+          for (const unitId of deployedUnitIds) {
+            delete unitStates[unitId];
+          }
+          return { ...candidate, unitStates };
+        });
+      }),
+    );
+    if (!next) return { ok: false, error: 'The formations could not be removed.' };
 
     set(next);
     return { ok: true };

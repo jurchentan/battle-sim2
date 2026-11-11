@@ -17,12 +17,36 @@ import {
 } from './scenarioDocuments';
 import { ScenarioTerrainLayer } from './ScenarioTerrainLayer';
 import { UnitFormationLayer, UnitFormationTransformer } from './UnitFormationLayer';
+import {
+  isMeaningfulMarquee,
+  rectangleFromPoints,
+  rectanglesIntersect,
+  type ScreenRect,
+} from './marquee';
 
 const PAPER_FILL: Record<TerrainMap['backgroundStyle'], string> = {
   plain: '#fbf8f0',
   'aged-paper': '#f1e6cd',
   parchment: '#eeddc0',
 };
+
+function formationScreenBounds(
+  shapeNode: Konva.Node,
+  labelNode: Konva.Node | undefined,
+): ScreenRect {
+  const shape = shapeNode.getClientRect();
+  if (!labelNode) return shape;
+
+  const label = labelNode.getClientRect();
+  const x = Math.min(shape.x, label.x);
+  const y = Math.min(shape.y, label.y);
+  return {
+    x,
+    y,
+    width: Math.max(shape.x + shape.width, label.x + label.width) - x,
+    height: Math.max(shape.y + shape.height, label.y + label.height) - y,
+  };
+}
 
 interface CanvasSize {
   width: number;
@@ -34,8 +58,11 @@ export function ScenarioCanvas() {
   const stageRef = useRef<Konva.Stage>(null);
   const cursorReadoutRef = useRef<HTMLSpanElement>(null);
   const panCleanupRef = useRef<(() => void) | null>(null);
+  const marqueeCleanupRef = useRef<(() => void) | null>(null);
   const [formationNodes] = useState(() => new Map<string, Konva.Node>());
+  const [labelNodes] = useState(() => new Map<string, Konva.Node>());
   const [formationNodeVersion, setFormationNodeVersion] = useState(0);
+  const [marqueeRect, setMarqueeRect] = useState<ScreenRect | null>(null);
 
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [panning, setPanning] = useState(false);
@@ -45,7 +72,7 @@ export function ScenarioCanvas() {
   const scenario = useScenarioStore((state) => state.document);
   const placeUnit = useScenarioStore((state) => state.placeUnit);
   const mode = useScenarioEditorStore((state) => state.mode);
-  const selectedUnitId = useScenarioEditorStore((state) => state.selectedUnitId);
+  const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
   const selectedFeatureId = useScenarioEditorStore((state) => state.selectedFeatureId);
   const hiddenFactionIds = useScenarioEditorStore((state) => state.hiddenFactionIds);
   const hiddenTerrainLayerIds = useScenarioEditorStore((state) => state.hiddenTerrainLayerIds);
@@ -57,6 +84,7 @@ export function ScenarioCanvas() {
   );
   const dynamicFrontage = useScenarioEditorStore((state) => state.dynamicFrontage);
   const selectUnit = useScenarioEditorStore((state) => state.selectUnit);
+  const selectUnits = useScenarioEditorStore((state) => state.selectUnits);
   const selectFeature = useScenarioEditorStore((state) => state.selectFeature);
   const cancelPlacement = useScenarioEditorStore((state) => state.cancelPlacement);
   const camera = useCameraStore((state) => state.camera);
@@ -97,6 +125,12 @@ export function ScenarioCanvas() {
     setPanning(false);
   }, []);
 
+  const stopMarquee = useCallback(() => {
+    marqueeCleanupRef.current?.();
+    marqueeCleanupRef.current = null;
+    setMarqueeRect(null);
+  }, []);
+
   const registerFormationNode = useCallback(
     (unitId: string, node: Konva.Node | null) => {
       const current = formationNodes.get(unitId) ?? null;
@@ -110,6 +144,17 @@ export function ScenarioCanvas() {
       }
     },
     [formationNodes],
+  );
+
+  const registerLabelNode = useCallback(
+    (unitId: string, node: Konva.Node | null) => {
+      if (node) {
+        labelNodes.set(unitId, node);
+      } else {
+        labelNodes.delete(unitId);
+      }
+    },
+    [labelNodes],
   );
 
   const beginPan = useCallback(
@@ -141,7 +186,60 @@ export function ScenarioCanvas() {
     [stopPan],
   );
 
+  const beginMarquee = useCallback(
+    (clientX: number, clientY: number, additive: boolean) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+
+      stopPan();
+      stopMarquee();
+
+      const containerRect = stage.container().getBoundingClientRect();
+      const start = { x: clientX - containerRect.left, y: clientY - containerRect.top };
+      let latest = rectangleFromPoints(start, start);
+      setMarqueeRect(latest);
+
+      const handleMove = (event: MouseEvent): void => {
+        latest = rectangleFromPoints(start, {
+          x: event.clientX - containerRect.left,
+          y: event.clientY - containerRect.top,
+        });
+        setMarqueeRect(latest);
+      };
+
+      const handleUp = (): void => {
+        marqueeCleanupRef.current?.();
+        marqueeCleanupRef.current = null;
+        setMarqueeRect(null);
+
+        if (!isMeaningfulMarquee(latest)) return;
+
+        const hits: string[] = [];
+        for (const [unitId, shapeNode] of formationNodes) {
+          const bounds = formationScreenBounds(shapeNode, labelNodes.get(unitId));
+          if (rectanglesIntersect(latest, bounds)) hits.push(unitId);
+        }
+
+        if (additive) {
+          const current = useScenarioEditorStore.getState().selectedUnitIds;
+          selectUnits([...current, ...hits]);
+        } else {
+          selectUnits(hits);
+        }
+      };
+
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+      marqueeCleanupRef.current = () => {
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleUp);
+      };
+    },
+    [formationNodes, labelNodes, selectUnits, stopMarquee, stopPan],
+  );
+
   useEffect(() => stopPan, [stopPan]);
+  useEffect(() => stopMarquee, [stopMarquee]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -155,7 +253,8 @@ export function ScenarioCanvas() {
 
       if (event.key === 'Escape') {
         cancelPlacement();
-        selectUnit(null);
+        stopMarquee();
+        selectUnits([]);
         selectFeature(null);
         setCursorWorld(null);
       }
@@ -175,7 +274,7 @@ export function ScenarioCanvas() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [cancelPlacement, selectFeature, selectUnit]);
+  }, [cancelPlacement, selectFeature, selectUnits, stopMarquee]);
 
   const stagePointer = (): Point | null => {
     const stage = stageRef.current;
@@ -210,10 +309,15 @@ export function ScenarioCanvas() {
     if (native.button !== 0) return;
 
     if (event.target === stage) {
-      selectUnit(null);
-      selectFeature(null);
       native.preventDefault();
-      beginPan(native.clientX, native.clientY);
+      if (mode === 'units') {
+        if (!native.shiftKey) selectUnits([]);
+        beginMarquee(native.clientX, native.clientY, native.shiftKey);
+      } else {
+        selectUnit(null);
+        selectFeature(null);
+        beginPan(native.clientX, native.clientY);
+      }
     }
   };
 
@@ -254,6 +358,7 @@ export function ScenarioCanvas() {
     isRectangleFormation(unit.echelon, scenario.rosterSnapshot.smallestUnitEchelon),
   ).length;
   const textFormationCount = visibleFormationCount - rectangleFormationCount;
+  const selectedUnitId = selectedUnitIds.length === 1 ? (selectedUnitIds[0] ?? null) : null;
   const selectedUnit = selectedUnitId ? unitsById.get(selectedUnitId) : undefined;
   const selectedState = selectedUnitId ? phase?.unitStates[selectedUnitId] : undefined;
   const selectedIsRectangle = selectedUnit
@@ -276,6 +381,12 @@ export function ScenarioCanvas() {
           dynamicFrontage,
         )
       : null;
+  const selectedStates = Object.fromEntries(
+    selectedUnitIds.flatMap((unitId) => {
+      const state = phase?.unitStates[unitId];
+      return state ? [[unitId, state] as const] : [];
+    }),
+  );
 
   const paperBounds = currentCanvasBounds(scenario.terrainSnapshot);
   const cursor = placementUnitId
@@ -284,7 +395,9 @@ export function ScenarioCanvas() {
       ? 'grabbing'
       : spaceDown
         ? 'grab'
-        : 'default';
+        : marqueeRect
+          ? 'crosshair'
+          : 'default';
 
   return (
     <div
@@ -299,12 +412,24 @@ export function ScenarioCanvas() {
       data-uppercase-labels={uppercaseFormationLabels ? 'true' : 'false'}
       data-formation-font-sizes={JSON.stringify(formationFontSizes)}
       data-formation-label-formats={JSON.stringify(formationLabelFormats)}
-      data-selected-kind={selectedUnit ? (selectedIsRectangle ? 'rectangle' : 'text') : 'none'}
+      data-selected-count={selectedUnitIds.length}
+      data-selected-unit-ids={JSON.stringify(selectedUnitIds)}
+      data-selected-states={JSON.stringify(selectedStates)}
+      data-selected-kind={
+        selectedUnit
+          ? selectedIsRectangle
+            ? 'rectangle'
+            : 'text'
+          : selectedUnitIds.length > 1
+            ? 'multiple'
+            : 'none'
+      }
       data-selected-map-label={selectedMapLabel}
       data-selected-label-flipped={
         selectedState && isUpsideDownRotation(selectedState.rotationDegrees) ? 'true' : 'false'
       }
       data-dynamic-frontage={dynamicFrontage ? 'true' : 'false'}
+      data-marquee-active={marqueeRect ? 'true' : 'false'}
       data-selected-rendered-frontage={
         selectedRenderedFrontage === null
           ? ''
@@ -381,19 +506,36 @@ export function ScenarioCanvas() {
                 uppercaseLabels={uppercaseFormationLabels}
                 dynamicFrontage={dynamicFrontage}
                 interactive={mode === 'units' && placementUnitId === null}
-                onSelectUnit={selectUnit}
+                formationNodes={formationNodes}
+                labelNodes={labelNodes}
                 registerNode={registerFormationNode}
+                registerLabelNode={registerLabelNode}
               />
             </Group>
 
             <UnitFormationTransformer
               nodeMap={formationNodes}
               nodeVersion={formationNodeVersion}
-              selectedUnitId={mode === 'units' ? selectedUnitId : null}
+              selectedUnitIds={mode === 'units' ? selectedUnitIds : []}
               enabled={mode === 'units' && placementUnitId === null}
-              resizable={selectedIsRectangle}
+              resizable={selectedUnitIds.length === 1 && selectedIsRectangle}
             />
           </Layer>
+
+          {marqueeRect ? (
+            <Layer listening={false}>
+              <Rect
+                x={marqueeRect.x}
+                y={marqueeRect.y}
+                width={marqueeRect.width}
+                height={marqueeRect.height}
+                fill="rgba(95, 115, 82, 0.12)"
+                stroke="#5f7352"
+                strokeWidth={1.5}
+                dash={[5, 4]}
+              />
+            </Layer>
+          ) : null}
         </Stage>
       ) : null}
 
@@ -409,7 +551,11 @@ export function ScenarioCanvas() {
             ? 'Click the map to deploy the selected formation · Esc cancels'
             : mode === 'terrain'
               ? 'Terrain snapshot · click a feature to inspect · drag empty canvas to pan'
-              : 'Drag formations · side handles resize frontage · top handle rotates'}
+              : selectedUnitIds.length > 1
+                ? `${selectedUnitIds.length} formations selected · drag any to move · top handle rotates all`
+                : selectedUnitIds.length === 1
+                  ? 'Drag the formation · side handles resize frontage · top handle rotates'
+                  : 'Drag empty canvas to box-select · Shift-click adds · double-click a parent selects its command'}
         </span>
       </div>
     </div>
