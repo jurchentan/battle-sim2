@@ -31,17 +31,21 @@ export const DEFAULT_FRONTAGE_BY_ECHELON: Record<UnitEchelon, number> = {
   other: 100,
 };
 
+export type FormationFrontages = Record<UnitEchelon, number>;
+
+export const DEFAULT_FRONTAGE_LIMITS = { min: 20, max: 2000 } as const;
+
 /**
  * Default map-label size in world units for each echelon. Formations above the
  * roster's smallest unit render as text, so higher echelons get larger text.
  */
 export const DEFAULT_FORMATION_FONT_SIZES: Record<UnitEchelon, number> = {
-  army: 76,
-  corps: 56,
-  division: 40,
-  brigade: 28,
-  regiment: 22,
-  other: 28,
+  army: 32,
+  corps: 25,
+  division: 20,
+  brigade: 15,
+  regiment: 10,
+  other: 10,
 };
 
 export type FormationFontSizes = Record<UnitEchelon, number>;
@@ -241,12 +245,13 @@ export function defaultUnitPhaseState(
   roster: ArmyRoster,
   unit: UnitDefinition,
   position: Point,
+  frontageLength = defaultFrontageLength(unit.echelon),
 ): UnitPhaseState {
   return {
     x: position.x,
     y: position.y,
     rotationDegrees: 0,
-    frontageLength: defaultFrontageLength(unit.echelon),
+    frontageLength,
     visible: true,
     effectiveStrength: effectiveUnitStrength(roster, unit.id) ?? unit.initialStrength,
     status: 'reserve',
@@ -283,10 +288,14 @@ export function deployFormationStates(
   parent: UnitDefinition,
   position: Point,
   deployedUnitIds: ReadonlySet<string> = new Set(),
+  frontageByEchelon: Partial<FormationFrontages> = {},
 ): Record<string, UnitPhaseState> {
+  const frontageFor = (unit: UnitDefinition): number =>
+    frontageByEchelon[unit.echelon] ?? defaultFrontageLength(unit.echelon);
+
   const states: Record<string, UnitPhaseState> = {};
   if (!deployedUnitIds.has(parent.id)) {
-    states[parent.id] = defaultUnitPhaseState(roster, parent, position);
+    states[parent.id] = defaultUnitPhaseState(roster, parent, position, frontageFor(parent));
   }
 
   const rows = new Map<number, UnitDefinition[]>();
@@ -303,7 +312,7 @@ export function deployFormationStates(
   orderedRows.forEach((units, rowIndex) => {
     const rowY = position.y - (orderedRows.length - rowIndex) * FORMATION_ROW_GAP;
     const widths = units.map((unit) =>
-      Math.max(defaultFrontageLength(unit.echelon), DEFAULT_FORMATION_FONT_SIZES[unit.echelon] * 4),
+      Math.max(frontageFor(unit), DEFAULT_FORMATION_FONT_SIZES[unit.echelon] * 4),
     );
     const totalWidth =
       widths.reduce((sum, width) => sum + width, 0) +
@@ -311,11 +320,16 @@ export function deployFormationStates(
     let cursorX = position.x - totalWidth / 2;
 
     units.forEach((unit, index) => {
-      const width = widths[index] ?? defaultFrontageLength(unit.echelon);
-      states[unit.id] = defaultUnitPhaseState(roster, unit, {
-        x: cursorX + width / 2,
-        y: rowY,
-      });
+      const width = widths[index] ?? frontageFor(unit);
+      states[unit.id] = defaultUnitPhaseState(
+        roster,
+        unit,
+        {
+          x: cursorX + width / 2,
+          y: rowY,
+        },
+        frontageFor(unit),
+      );
       cursorX += width + FORMATION_COLUMN_GAP;
     });
   });

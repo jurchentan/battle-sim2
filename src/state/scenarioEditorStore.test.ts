@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_FORMATION_FONT_SIZES,
   DEFAULT_FORMATION_LABEL_FORMATS,
+  DEFAULT_FRONTAGE_BY_ECHELON,
 } from '../features/scenario/scenarioDocuments';
 import { useScenarioEditorStore } from './scenarioEditorStore';
 
@@ -120,6 +121,7 @@ describe('scenario editor store', () => {
     const store = useScenarioEditorStore.getState();
     expect(store.formationFontSizes).toEqual(DEFAULT_FORMATION_FONT_SIZES);
     expect(store.formationLabelFormats).toEqual(DEFAULT_FORMATION_LABEL_FORMATS);
+    expect(store.defaultFrontageByEchelon).toEqual(DEFAULT_FRONTAGE_BY_ECHELON);
     expect(store.uppercaseFormationLabels).toBe(false);
     expect(store.dynamicFrontage).toBe(false);
 
@@ -128,6 +130,9 @@ describe('scenario editor store', () => {
     store.setFormationFontSize('corps', 300);
     store.setFormationLabelFormat('army', 'commander');
     store.setFormationLabelFormat('brigade', 'none');
+    store.setDefaultFrontage('brigade', 155.6);
+    store.setDefaultFrontage('regiment', 4);
+    store.setDefaultFrontage('corps', 5000);
     store.setUppercaseFormationLabels(true);
     store.setDynamicFrontage(true);
 
@@ -141,6 +146,12 @@ describe('scenario editor store', () => {
       brigade: 'none',
       division: 'full',
     });
+    expect(useScenarioEditorStore.getState().defaultFrontageByEchelon).toMatchObject({
+      army: DEFAULT_FRONTAGE_BY_ECHELON.army,
+      brigade: 156,
+      regiment: 20,
+      corps: 2000,
+    });
     expect(useScenarioEditorStore.getState().uppercaseFormationLabels).toBe(true);
     expect(useScenarioEditorStore.getState().dynamicFrontage).toBe(true);
 
@@ -150,6 +161,9 @@ describe('scenario editor store', () => {
     );
     expect(useScenarioEditorStore.getState().formationLabelFormats).toEqual(
       DEFAULT_FORMATION_LABEL_FORMATS,
+    );
+    expect(useScenarioEditorStore.getState().defaultFrontageByEchelon).toEqual(
+      DEFAULT_FRONTAGE_BY_ECHELON,
     );
     expect(useScenarioEditorStore.getState().uppercaseFormationLabels).toBe(false);
     expect(useScenarioEditorStore.getState().dynamicFrontage).toBe(false);

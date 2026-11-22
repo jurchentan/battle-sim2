@@ -89,6 +89,7 @@ and reopen.
 - [x] Place formations; smallest-echelon units render as rectangles, higher echelons as text labels
 - [x] Deploy parent formations with undeployed subordinates arranged in echelon rows in front
 - [x] Configurable per-echelon label sizes, name styles (full, shortened, commander surname, none), and uppercase labels
+- [x] Configurable per-echelon default frontage for newly deployed formations
 - [x] Dynamic frontage scaled linearly from a 3,000-strong baseline
 - [x] Measure labels to avoid clipping and keep transparent hit areas close to the text
 - [x] Select and drag formations by their symbols or names, with legible upside-down label flipping

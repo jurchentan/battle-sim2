@@ -138,6 +138,27 @@ describe('scenario store', () => {
     expect(useScenarioStore.getState().past).toHaveLength(1);
   });
 
+  it('uses per-echelon frontage defaults for new deployments', () => {
+    unwrap(
+      useScenarioStore.getState().placeUnit(
+        'unit-north-army',
+        { x: 500, y: 800 },
+        {
+          army: 300,
+          corps: 240,
+          division: 200,
+          brigade: 140,
+        },
+      ),
+    );
+
+    const states = activeState()?.unitStates ?? {};
+    expect(states['unit-north-army']?.frontageLength).toBe(300);
+    expect(states['unit-north-corps']?.frontageLength).toBe(240);
+    expect(states['unit-north-division']?.frontageLength).toBe(200);
+    expect(useScenarioStore.getState().past).toHaveLength(1);
+  });
+
   it('rejects duplicate deployments and invalid unit patches without recording history', () => {
     unwrap(
       useScenarioStore.getState().createScenario({

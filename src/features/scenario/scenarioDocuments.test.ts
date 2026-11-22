@@ -194,6 +194,28 @@ describe('scenario document helpers', () => {
     });
   });
 
+  it('applies per-echelon frontage overrides when placing formations', () => {
+    const roster = createSeedRoster();
+    const army = roster.units.find((unit) => unit.id === 'unit-north-army');
+    if (!army) throw new Error('The seed roster is missing its northern army');
+
+    const direct = defaultUnitPhaseState(roster, army, { x: 40, y: 80 }, 175);
+    expect(direct.frontageLength).toBe(175);
+
+    const states = deployFormationStates(roster, army, { x: 500, y: 800 }, new Set(), {
+      corps: 250,
+      brigade: 150,
+    });
+    expect(states['unit-north-army']?.frontageLength).toBe(DEFAULT_FRONTAGE_BY_ECHELON.army);
+    expect(states['unit-north-corps']?.frontageLength).toBe(250);
+    expect(states['unit-north-division']?.frontageLength).toBe(
+      DEFAULT_FRONTAGE_BY_ECHELON.division,
+    );
+    expect(states['unit-north-brigade-1']?.frontageLength).toBe(150);
+    expect(states['unit-north-brigade-2']?.frontageLength).toBe(150);
+    expect(states['unit-north-brigade-3']?.frontageLength).toBe(150);
+  });
+
   it('defaults higher echelons to full names and lower echelons to shortened names', () => {
     expect(DEFAULT_FORMATION_LABEL_FORMATS).toMatchObject({
       army: 'full',

@@ -3,7 +3,10 @@ import type { UnitEchelon } from '../models';
 import {
   DEFAULT_FORMATION_FONT_SIZES,
   DEFAULT_FORMATION_LABEL_FORMATS,
+  DEFAULT_FRONTAGE_BY_ECHELON,
+  DEFAULT_FRONTAGE_LIMITS,
   type FormationFontSizes,
+  type FormationFrontages,
   type FormationLabelFormat,
   type FormationLabelFormats,
 } from '../features/scenario/scenarioDocuments';
@@ -19,6 +22,7 @@ interface ScenarioEditorState {
   placementUnitId: string | null;
   formationFontSizes: FormationFontSizes;
   formationLabelFormats: FormationLabelFormats;
+  defaultFrontageByEchelon: FormationFrontages;
   uppercaseFormationLabels: boolean;
   dynamicFrontage: boolean;
   setMode: (mode: ScenarioMode) => void;
@@ -33,6 +37,7 @@ interface ScenarioEditorState {
   toggleTerrainLayerVisible: (layerId: string) => void;
   setFormationFontSize: (echelon: UnitEchelon, size: number) => void;
   setFormationLabelFormat: (echelon: UnitEchelon, format: FormationLabelFormat) => void;
+  setDefaultFrontage: (echelon: UnitEchelon, length: number) => void;
   setUppercaseFormationLabels: (uppercase: boolean) => void;
   setDynamicFrontage: (dynamic: boolean) => void;
   resetFormationDisplay: () => void;
@@ -52,6 +57,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
   placementUnitId: null,
   formationFontSizes: { ...DEFAULT_FORMATION_FONT_SIZES },
   formationLabelFormats: { ...DEFAULT_FORMATION_LABEL_FORMATS },
+  defaultFrontageByEchelon: { ...DEFAULT_FRONTAGE_BY_ECHELON },
   uppercaseFormationLabels: false,
   dynamicFrontage: false,
 
@@ -162,6 +168,17 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
       },
     })),
 
+  setDefaultFrontage: (echelon, length) =>
+    set((state) => ({
+      defaultFrontageByEchelon: {
+        ...state.defaultFrontageByEchelon,
+        [echelon]: Math.min(
+          DEFAULT_FRONTAGE_LIMITS.max,
+          Math.max(DEFAULT_FRONTAGE_LIMITS.min, Math.round(length)),
+        ),
+      },
+    })),
+
   setUppercaseFormationLabels: (uppercaseFormationLabels) => set({ uppercaseFormationLabels }),
 
   setDynamicFrontage: (dynamicFrontage) => set({ dynamicFrontage }),
@@ -170,6 +187,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
     set({
       formationFontSizes: { ...DEFAULT_FORMATION_FONT_SIZES },
       formationLabelFormats: { ...DEFAULT_FORMATION_LABEL_FORMATS },
+      defaultFrontageByEchelon: { ...DEFAULT_FRONTAGE_BY_ECHELON },
       uppercaseFormationLabels: false,
       dynamicFrontage: false,
     }),

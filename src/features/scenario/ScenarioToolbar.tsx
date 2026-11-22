@@ -21,12 +21,16 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
   const setMode = useScenarioEditorStore((state) => state.setMode);
   const formationFontSizes = useScenarioEditorStore((state) => state.formationFontSizes);
   const formationLabelFormats = useScenarioEditorStore((state) => state.formationLabelFormats);
+  const defaultFrontageByEchelon = useScenarioEditorStore(
+    (state) => state.defaultFrontageByEchelon,
+  );
   const uppercaseFormationLabels = useScenarioEditorStore(
     (state) => state.uppercaseFormationLabels,
   );
   const dynamicFrontage = useScenarioEditorStore((state) => state.dynamicFrontage);
   const setFormationFontSize = useScenarioEditorStore((state) => state.setFormationFontSize);
   const setFormationLabelFormat = useScenarioEditorStore((state) => state.setFormationLabelFormat);
+  const setDefaultFrontage = useScenarioEditorStore((state) => state.setDefaultFrontage);
   const setUppercaseFormationLabels = useScenarioEditorStore(
     (state) => state.setUppercaseFormationLabels,
   );
@@ -251,6 +255,29 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
                       max={200}
                       step={1}
                       onCommit={(value) => setFormationFontSize(echelon, value)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[0.62rem] font-semibold uppercase tracking-wide text-[#7c715c]">
+                  Default frontage
+                </h4>
+                <p className="mt-0.5 text-[0.62rem] text-[#8a7a58]">
+                  Applied when a formation is first deployed. Existing formations keep their
+                  frontage.
+                </p>
+                <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                  {ECHELON_ORDER.map((echelon) => (
+                    <NumberField
+                      key={echelon}
+                      label={`${ECHELON_LABELS[echelon]} default frontage`}
+                      value={defaultFrontageByEchelon[echelon]}
+                      min={20}
+                      max={2000}
+                      step={10}
+                      onCommit={(value) => setDefaultFrontage(echelon, value)}
                     />
                   ))}
                 </div>

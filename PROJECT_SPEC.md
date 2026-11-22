@@ -117,6 +117,8 @@ silently mutate existing scenarios.
   name styles (full, shortened, commander surname, or none), an uppercase
   display setting, and optional dynamic frontage scaled linearly from a
   3,000-strong baseline.
+- Per-echelon default frontage is configurable in the editor and applied when a
+  formation is first deployed. Existing deployments keep their own frontage.
 - Labels are measured to avoid clipping and rotate with formations, flipping
   upright when upside down. Clicking or dragging a name selects and moves its
   formation, including when names are hidden.
@@ -139,8 +141,9 @@ parent/subordinate formation blocks, rectangle and text formation rendering,
 per-echelon font and name display settings, dynamic frontage, label-based
 selection and dragging, formation editing, faction filtering, direct removal,
 multi-selection by marquee/Shift-click/hierarchy double-click, group drag and
-group rotation, and separate terrain/unit modes. Phase management and
-annotations follow in M6; scenario persistence and export follow in M7.
+group rotation, configurable per-echelon default frontage, and separate
+terrain/unit modes. Phase management and annotations follow in M6; scenario
+persistence and export follow in M7.
 
 ### Persistence and export
 

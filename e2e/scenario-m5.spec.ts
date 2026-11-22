@@ -342,6 +342,9 @@ test('renders higher echelons as text and applies display settings', async ({ pa
   const initialLabelFormats = JSON.parse(
     (await canvas.getAttribute('data-formation-label-formats')) ?? '{}',
   );
+  const initialFontSizes = JSON.parse(
+    (await canvas.getAttribute('data-formation-font-sizes')) ?? '{}',
+  );
   expect(initialLabelFormats).toEqual({
     army: 'full',
     corps: 'full',
@@ -371,7 +374,7 @@ test('renders higher echelons as text and applies display settings', async ({ pa
   await armyFontSize.fill('92');
   await armyFontSize.press('Enter');
   const fontSizes = JSON.parse((await canvas.getAttribute('data-formation-font-sizes')) ?? '{}');
-  expect(fontSizes).toMatchObject({ army: 92, corps: 56, division: 40, brigade: 28 });
+  expect(fontSizes).toMatchObject({ ...initialFontSizes, army: 92 });
 
   const flippedRotation = page.getByLabel('Rotation');
   await flippedRotation.fill('180');
@@ -390,11 +393,55 @@ test('renders higher echelons as text and applies display settings', async ({ pa
   const resetFontSizes = JSON.parse(
     (await canvas.getAttribute('data-formation-font-sizes')) ?? '{}',
   );
-  expect(resetFontSizes).toMatchObject({ army: 76, corps: 56, division: 40, brigade: 28 });
+  expect(resetFontSizes).toEqual(initialFontSizes);
   const resetLabelFormats = JSON.parse(
     (await canvas.getAttribute('data-formation-label-formats')) ?? '{}',
   );
   expect(resetLabelFormats).toEqual(initialLabelFormats);
+});
+
+test('uses configured per-echelon default frontage for new deployments', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Scenario Editor' }).click();
+  await expect(page.getByRole('heading', { name: 'Scenario Editor' })).toBeVisible();
+
+  const canvas = page.getByTestId('scenario-canvas');
+  await expect(canvas).toBeVisible();
+
+  await page.getByRole('button', { name: 'Display', exact: true }).click();
+  await expect(page.getByTestId('scenario-display-settings')).toBeVisible();
+
+  const corpsFrontage = page.getByLabel('Corps default frontage');
+  const divisionFrontage = page.getByLabel('Division default frontage');
+  const initialCorpsFrontage = await corpsFrontage.inputValue();
+  const initialDivisionFrontage = await divisionFrontage.inputValue();
+  await corpsFrontage.fill('260');
+  await corpsFrontage.press('Enter');
+  await divisionFrontage.fill('200');
+  await divisionFrontage.press('Enter');
+  await page.getByRole('button', { name: 'Display', exact: true }).click();
+  await expect(page.getByTestId('scenario-display-settings')).not.toBeVisible();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Scenario canvas has no bounding box');
+
+  await page.getByRole('button', { name: 'Deploy I Corps', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-placement', 'true');
+  await page.mouse.click(box.x + 300, box.y + 220);
+  await expect(canvas).toHaveAttribute('data-visible-formations', '8');
+
+  await expect(page.getByTestId('selected-unit-name')).toHaveText('I Corps');
+  await expect(page.getByTestId('selected-unit-frontage')).toHaveText('260 units');
+
+  await page.getByRole('button', { name: 'Select unit Voss Division', exact: true }).click();
+  await expect(page.getByTestId('selected-unit-frontage')).toHaveText('200 units');
+
+  // Reset display restores the built-in defaults without changing deployments.
+  await page.getByRole('button', { name: 'Display', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset display', exact: true }).click();
+  await expect(page.getByLabel('Corps default frontage')).toHaveValue(initialCorpsFrontage);
+  await expect(page.getByLabel('Division default frontage')).toHaveValue(initialDivisionFrontage);
+  await expect(page.getByTestId('selected-unit-frontage')).toHaveText('200 units');
 });
 
 test('bulk-selects formations by marquee, Shift-click, and hierarchy double-click', async ({
@@ -633,7 +680,10 @@ test('rotates the group with the transformer handle and keeps bulk edits atomic'
   const rotatedBeforeDrag = await selectedStates();
   const leader = rotatedBeforeDrag['unit-north-brigade-1'];
   if (!leader) throw new Error('The rotated leader formation is missing');
-  const labelDistance = 3.5 + 8 + (28 * 1.3) / 2;
+  const brigadeFontSize = JSON.parse(
+    (await canvas.getAttribute('data-formation-font-sizes')) ?? '{}',
+  ).brigade as number;
+  const labelDistance = 3.5 + 8 + (brigadeFontSize * 1.3) / 2;
   const angle = (leader.rotationDegrees * Math.PI) / 180;
   const labelPoint = screenPoint(
     leader.x + Math.sin(angle) * labelDistance,

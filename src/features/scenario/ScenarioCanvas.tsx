@@ -79,6 +79,9 @@ export function ScenarioCanvas() {
   const placementUnitId = useScenarioEditorStore((state) => state.placementUnitId);
   const formationFontSizes = useScenarioEditorStore((state) => state.formationFontSizes);
   const formationLabelFormats = useScenarioEditorStore((state) => state.formationLabelFormats);
+  const defaultFrontageByEchelon = useScenarioEditorStore(
+    (state) => state.defaultFrontageByEchelon,
+  );
   const uppercaseFormationLabels = useScenarioEditorStore(
     (state) => state.uppercaseFormationLabels,
   );
@@ -292,7 +295,7 @@ export function ScenarioCanvas() {
       const point = stagePointer();
       if (!point) return;
       native.preventDefault();
-      const result = placeUnit(placementUnitId, point);
+      const result = placeUnit(placementUnitId, point, defaultFrontageByEchelon);
       if (result.ok) {
         selectUnit(placementUnitId);
         cancelPlacement();

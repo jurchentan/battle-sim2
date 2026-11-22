@@ -265,12 +265,17 @@ cloned in `src/models/seed.ts`.
   270° so names never read upside down. Label width is measured with the same
   font Konva renders, which prevents long names from clipping and keeps the
   transparent hit rectangle close to the visible text instead of spanning a
-  fixed oversized block. Per-echelon font sizes, name formats (full, shortened,
-  commander surname, or none), uppercase labels, and dynamic frontage are
-  transient display preferences in `scenarioEditorStore`, not scenario document
-  state. Dynamic frontage scales the rendered rectangle by
-  `effectiveStrength / 3000`; the stored frontage remains the length for a
-  3,000-strong formation and therefore the value the inspector edits. Rectangle
+  fixed oversized block. Per-echelon font sizes, default frontage, name formats
+  (full, shortened, commander surname, or none), uppercase labels, and dynamic
+  frontage are transient display/deployment preferences in
+  `scenarioEditorStore`, not scenario document state. `placeUnit` passes the
+  current default frontage map to `deployFormationStates`, which seeds every new
+  unit state's `frontageLength` and uses the configured widths for automatic
+  echelon-row spacing. Changing a default never rewrites existing formations;
+  their phase state keeps the frontage it was deployed with. Dynamic frontage
+  scales the rendered rectangle by `effectiveStrength / 3000`; the stored
+  frontage remains the length for a 3,000-strong formation and therefore the
+  value the inspector edits. Rectangle
   labels use a separate invisible hit rectangle: clicking or dragging a name
   selects the formation and mirrors its position into the rectangle group during
   the drag, committing one deployment edit at the end. Hidden names keep a small

@@ -10,6 +10,7 @@ import {
   activeScenarioPhase,
   createScenarioDocument,
   deployFormationStates,
+  type FormationFrontages,
   type NewScenarioInput,
 } from '../features/scenario/scenarioDocuments';
 
@@ -67,7 +68,11 @@ export interface ScenarioEditorStore {
   loadDocument: (document: BattleScenario) => void;
   createScenario: (input: NewScenarioInput) => ScenarioCreateResult;
   renameDocument: (name: string) => ScenarioMutationResult;
-  placeUnit: (unitId: string, position: Point) => ScenarioMutationResult;
+  placeUnit: (
+    unitId: string,
+    position: Point,
+    frontageByEchelon?: Partial<FormationFrontages>,
+  ) => ScenarioMutationResult;
   updateUnitState: (unitId: string, patch: Partial<UnitPhaseState>) => ScenarioMutationResult;
   updateUnitStates: (patches: Record<string, Partial<UnitPhaseState>>) => ScenarioMutationResult;
   undeployUnit: (unitId: string) => ScenarioMutationResult;
@@ -131,7 +136,7 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
     return { ok: true };
   },
 
-  placeUnit: (unitId, position) => {
+  placeUnit: (unitId, position, frontageByEchelon) => {
     const state = get();
     const phase = activeScenarioPhase(state.document);
     if (!phase) return { ok: false, error: 'The active phase could not be found.' };
@@ -148,6 +153,7 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
       unit,
       position,
       deployedUnitIds,
+      frontageByEchelon,
     );
 
     const next = commit(

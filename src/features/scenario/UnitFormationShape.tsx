@@ -26,7 +26,6 @@ interface UnitFormationShapeProps {
 
 const LABEL_GAP = 8;
 const LABEL_FONT_FAMILY = 'Georgia, serif';
-const CLICK_AFTER_DRAG_GUARD_MS = 200;
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
 
@@ -89,7 +88,7 @@ export function UnitFormationShape({
   const labelTextRotation = flipLabel ? 180 : 0;
   const shapeRef = useRef<Konva.Group | null>(null);
   const labelRef = useRef<Konva.Group | null>(null);
-  const lastDragEndRef = useRef(0);
+  const suppressClickRef = useRef(false);
   const setShapeNode = useCallback(
     (node: Konva.Group | null) => {
       shapeRef.current = node;
@@ -108,15 +107,23 @@ export function UnitFormationShape({
   const handleSelect = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void => {
     if (!interactive) return;
     event.cancelBubble = true;
-    if (performance.now() - lastDragEndRef.current < CLICK_AFTER_DRAG_GUARD_MS) return;
+    // Konva emits a click after a drag as well; ignore only that trailing click so
+    // a deliberate click immediately after dragging is not lost.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     onSelect(unit.id, additiveSelection(event));
   };
 
   const handleSelectHierarchy = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void => {
     if (!interactive) return;
     event.cancelBubble = true;
-    if (performance.now() - lastDragEndRef.current < CLICK_AFTER_DRAG_GUARD_MS) return;
     onSelectHierarchy(unit.id);
+  };
+
+  const handleMouseDown = (): void => {
+    suppressClickRef.current = false;
   };
 
   const handleDragStart = (event: Konva.KonvaEventObject<DragEvent>): void => {
@@ -124,8 +131,10 @@ export function UnitFormationShape({
   };
 
   const handleDragEnd = (event: Konva.KonvaEventObject<DragEvent>): void => {
-    lastDragEndRef.current = performance.now();
-    onDragEnd(unit.id, event.target as Konva.Node);
+    const target = event.target as Konva.Node;
+    suppressClickRef.current =
+      Math.abs(target.x() - state.x) > 0.01 || Math.abs(target.y() - state.y) > 0.01;
+    onDragEnd(unit.id, target);
   };
 
   const handleTransformEnd = (event: Konva.KonvaEventObject<Event>): void => {
@@ -177,6 +186,7 @@ export function UnitFormationShape({
   };
 
   const dragHandlers = {
+    onMouseDown: handleMouseDown,
     onClick: handleSelect,
     onTap: handleSelect,
     onDblClick: handleSelectHierarchy,
