@@ -131,7 +131,7 @@ describe('scenario store', () => {
 
     const states = activeState()?.unitStates ?? {};
     expect(Object.keys(states)).toHaveLength(9);
-    expect(states['unit-north-army']).toMatchObject({ x: 500, y: 800 });
+    expect(states['unit-north-army']).toMatchObject({ x: 500, y: 800, rotationDegrees: 180 });
     expect(states['unit-north-corps']?.y).toBe(660);
     expect(states['unit-north-division']?.y).toBe(520);
     expect(states['unit-north-brigade-1']).toMatchObject({ x: 700, y: 520 });

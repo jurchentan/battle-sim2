@@ -248,7 +248,7 @@ export function defaultUnitPhaseState(
   return {
     x: position.x,
     y: position.y,
-    rotationDegrees: 0,
+    rotationDegrees: 180,
     frontageLength,
     visible: true,
     effectiveStrength: effectiveUnitStrength(roster, unit.id) ?? unit.initialStrength,
@@ -259,27 +259,103 @@ export function defaultUnitPhaseState(
 const FORMATION_ROW_GAP = 140;
 const FORMATION_COLUMN_GAP = 40;
 
-function formationDescendants(roster: ArmyRoster, unitId: string): UnitDefinition[] {
-  const descendants: UnitDefinition[] = [];
-  const seen = new Set<string>();
+interface FormationLayoutNode {
+  unit: UnitDefinition;
+  width: number;
+  subtreeWidth: number;
+  children: FormationLayoutNode[];
+}
 
-  const visit = (parentId: string): void => {
-    for (const child of unitChildren(roster, parentId)) {
-      if (seen.has(child.id)) continue;
-      seen.add(child.id);
-      descendants.push(child);
-      visit(child.id);
-    }
+function formationNodeWidth(
+  unit: UnitDefinition,
+  frontageFor: (unit: UnitDefinition) => number,
+): number {
+  return Math.max(frontageFor(unit), DEFAULT_FORMATION_FONT_SIZES[unit.echelon] * 4);
+}
+
+function childrenLayoutWidth(children: readonly FormationLayoutNode[]): number {
+  return (
+    children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
+    Math.max(0, children.length - 1) * FORMATION_COLUMN_GAP
+  );
+}
+
+function buildFormationLayout(
+  roster: ArmyRoster,
+  unit: UnitDefinition,
+  deployedUnitIds: ReadonlySet<string>,
+  frontageFor: (unit: UnitDefinition) => number,
+): FormationLayoutNode {
+  const children = unitChildren(roster, unit.id).flatMap((child) =>
+    deployedUnitIds.has(child.id)
+      ? buildFormationForest(roster, child.id, deployedUnitIds, frontageFor)
+      : [buildFormationLayout(roster, child, deployedUnitIds, frontageFor)],
+  );
+  const width = formationNodeWidth(unit, frontageFor);
+  return {
+    unit,
+    width,
+    subtreeWidth: Math.max(width, childrenLayoutWidth(children)),
+    children,
   };
-
-  visit(unitId);
-  return descendants;
 }
 
 /**
- * Deploys a parent formation and every undeployed subordinate. Subordinates
- * form one centered row per echelon, smallest formations at the front, with the
- * parent at the requested position behind them.
+ * Undeployed subordinates of an already-deployed formation cannot be attached
+ * to that formation's layout node, so promote them to the nearest new ancestor.
+ */
+function buildFormationForest(
+  roster: ArmyRoster,
+  parentUnitId: string,
+  deployedUnitIds: ReadonlySet<string>,
+  frontageFor: (unit: UnitDefinition) => number,
+): FormationLayoutNode[] {
+  return unitChildren(roster, parentUnitId).flatMap((child) =>
+    deployedUnitIds.has(child.id)
+      ? buildFormationForest(roster, child.id, deployedUnitIds, frontageFor)
+      : [buildFormationLayout(roster, child, deployedUnitIds, frontageFor)],
+  );
+}
+
+function assignFormationPositions(
+  node: FormationLayoutNode,
+  centerX: number,
+  centerY: number,
+  roster: ArmyRoster,
+  states: Record<string, UnitPhaseState>,
+  frontageFor: (unit: UnitDefinition) => number,
+  recordState: boolean,
+): void {
+  if (recordState) {
+    states[node.unit.id] = defaultUnitPhaseState(
+      roster,
+      node.unit,
+      { x: centerX, y: centerY },
+      frontageFor(node.unit),
+    );
+  }
+
+  if (node.children.length === 0) return;
+  let cursor = centerX - childrenLayoutWidth(node.children) / 2;
+  for (const child of node.children) {
+    assignFormationPositions(
+      child,
+      cursor + child.subtreeWidth / 2,
+      centerY - FORMATION_ROW_GAP,
+      roster,
+      states,
+      frontageFor,
+      true,
+    );
+    cursor += child.subtreeWidth + FORMATION_COLUMN_GAP;
+  }
+}
+
+/**
+ * Deploys a parent formation and every undeployed subordinate. The layout is a
+ * tidy tree: children sit side by side in front of their parent, and each parent
+ * is centered behind its own children so separate branches never share one
+ * global echelon row. Already-deployed subordinates keep their positions.
  */
 export function deployFormationStates(
   roster: ArmyRoster,
@@ -292,45 +368,16 @@ export function deployFormationStates(
     frontageByEchelon[unit.echelon] ?? defaultFrontageLength(unit.echelon);
 
   const states: Record<string, UnitPhaseState> = {};
-  if (!deployedUnitIds.has(parent.id)) {
-    states[parent.id] = defaultUnitPhaseState(roster, parent, position, frontageFor(parent));
-  }
-
-  const rows = new Map<number, UnitDefinition[]>();
-  for (const unit of formationDescendants(roster, parent.id)) {
-    if (deployedUnitIds.has(unit.id)) continue;
-    const rank = echelonRank(unit.echelon);
-    rows.set(rank, [...(rows.get(rank) ?? []), unit]);
-  }
-
-  const orderedRows = [...rows.entries()]
-    .sort(([rankA], [rankB]) => rankB - rankA)
-    .map(([, units]) => units.sort((a, b) => a.id.localeCompare(b.id)));
-
-  orderedRows.forEach((units, rowIndex) => {
-    const rowY = position.y - (orderedRows.length - rowIndex) * FORMATION_ROW_GAP;
-    const widths = units.map((unit) =>
-      Math.max(frontageFor(unit), DEFAULT_FORMATION_FONT_SIZES[unit.echelon] * 4),
-    );
-    const totalWidth =
-      widths.reduce((sum, width) => sum + width, 0) +
-      Math.max(0, units.length - 1) * FORMATION_COLUMN_GAP;
-    let cursorX = position.x - totalWidth / 2;
-
-    units.forEach((unit, index) => {
-      const width = widths[index] ?? frontageFor(unit);
-      states[unit.id] = defaultUnitPhaseState(
-        roster,
-        unit,
-        {
-          x: cursorX + width / 2,
-          y: rowY,
-        },
-        frontageFor(unit),
-      );
-      cursorX += width + FORMATION_COLUMN_GAP;
-    });
-  });
+  const layout = buildFormationLayout(roster, parent, deployedUnitIds, frontageFor);
+  assignFormationPositions(
+    layout,
+    position.x,
+    position.y,
+    roster,
+    states,
+    frontageFor,
+    !deployedUnitIds.has(parent.id),
+  );
 
   return states;
 }

@@ -87,12 +87,13 @@ and reopen.
 
 - [x] Create scenario from snapshots of saved terrain and roster (superseded by M5.5)
 - [x] Place formations; smallest-echelon units render as rectangles, higher echelons as text labels
-- [x] Deploy parent formations with undeployed subordinates arranged in echelon rows in front
+- [x] Deploy parent formations with undeployed subordinates arranged in hierarchy-relative rows, each parent centered behind its own children
+- [x] Bulk-select the newly deployed parent command after placement
 - [x] Configurable per-echelon label sizes, name styles (full, shortened, commander surname, none), and uppercase labels
 - [x] Configurable per-echelon default frontage for newly deployed formations
 - [x] Dynamic frontage scaled linearly from a 3,000-strong baseline
 - [x] Measure labels to avoid clipping and keep transparent hit areas close to the text
-- [x] Select and drag formations by their symbols or names, with legible upside-down label flipping
+- [x] Select and drag formations by their symbols or names, with legible upside-down label flipping and a 180° default deployment orientation
 - [x] Select, drag, rotate with screen-space handles, resize frontage, edit labels
 - [x] Direct removal from the inspector and order of battle, with undo
 - [x] Faction visibility filters

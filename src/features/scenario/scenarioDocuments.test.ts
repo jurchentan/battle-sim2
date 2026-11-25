@@ -139,7 +139,7 @@ describe('scenario document helpers', () => {
     expect(state).toMatchObject({
       x: 180,
       y: 240,
-      rotationDegrees: 0,
+      rotationDegrees: 180,
       frontageLength: DEFAULT_FRONTAGE_BY_ECHELON.brigade,
       visible: true,
       effectiveStrength: 1500,
@@ -176,16 +176,21 @@ describe('scenario document helpers', () => {
     expect(renderedFrontageLength(120, null, true)).toBe(120);
   });
 
-  it('deploys a parent with undeployed descendants in echelon rows', () => {
+  it('deploys a parent with undeployed descendants in hierarchy-relative rows', () => {
     const roster = createSeedRoster();
     const army = roster.units.find((unit) => unit.id === 'unit-north-army');
     if (!army) throw new Error('The seed roster is missing its northern army');
 
     const states = deployFormationStates(roster, army, { x: 500, y: 800 });
     expect(Object.keys(states)).toHaveLength(6);
-    expect(states['unit-north-army']).toMatchObject({ x: 500, y: 800 });
+    expect(states['unit-north-army']).toMatchObject({ x: 500, y: 800, rotationDegrees: 180 });
     expect(states['unit-north-corps']?.y).toBe(660);
     expect(states['unit-north-division']?.y).toBe(520);
+    expect(
+      ['unit-north-brigade-1', 'unit-north-brigade-2', 'unit-north-brigade-3'].map(
+        (unitId) => states[unitId]?.y,
+      ),
+    ).toEqual([380, 380, 380]);
     expect(
       ['unit-north-brigade-1', 'unit-north-brigade-2', 'unit-north-brigade-3'].map(
         (unitId) => states[unitId]?.x,
@@ -206,6 +211,54 @@ describe('scenario document helpers', () => {
     expect(deployFormationStates(roster, brigade, { x: 10, y: 20 })).toEqual({
       'unit-north-brigade-1': expect.objectContaining({ x: 10, y: 20 }),
     });
+  });
+
+  it('centers every formation behind its own subordinates instead of one global row', () => {
+    const roster = createSeedRoster();
+    const corps = roster.units.find((unit) => unit.id === 'unit-north-corps');
+    const army = roster.units.find((unit) => unit.id === 'unit-north-army');
+    const divisionTemplate = roster.units.find((unit) => unit.id === 'unit-north-division');
+    const brigadeTemplate = roster.units.find((unit) => unit.id === 'unit-north-brigade-1');
+    if (!corps || !army || !divisionTemplate || !brigadeTemplate) {
+      throw new Error('The seed roster is missing its northern hierarchy');
+    }
+
+    const secondDivision = {
+      ...structuredClone(divisionTemplate),
+      id: 'unit-north-division-2',
+      customName: 'Hale Division',
+      parentUnitId: corps.id,
+    };
+    const secondBrigades = [4, 5, 6].map((index) => ({
+      ...structuredClone(brigadeTemplate),
+      id: `unit-north-brigade-${index}`,
+      customName: `Brigade ${index}`,
+      parentUnitId: secondDivision.id,
+    }));
+    roster.units.push(secondDivision, ...secondBrigades);
+
+    const states = deployFormationStates(roster, army, { x: 500, y: 800 });
+    const centerOf = (unitIds: readonly string[]): number =>
+      unitIds.reduce((sum, unitId) => sum + (states[unitId]?.x ?? 0), 0) / unitIds.length;
+    const vossBrigades = ['unit-north-brigade-1', 'unit-north-brigade-2', 'unit-north-brigade-3'];
+    const haleBrigades = ['unit-north-brigade-4', 'unit-north-brigade-5', 'unit-north-brigade-6'];
+
+    expect(states['unit-north-division']?.x).toBeCloseTo(centerOf(vossBrigades));
+    expect(states['unit-north-division-2']?.x).toBeCloseTo(centerOf(haleBrigades));
+    expect(states['unit-north-division']?.x).not.toBeCloseTo(
+      states['unit-north-division-2']?.x ?? 0,
+    );
+    expect(states['unit-north-corps']?.x).toBeCloseTo(
+      ((states['unit-north-division']?.x ?? 0) + (states['unit-north-division-2']?.x ?? 0)) / 2,
+    );
+    expect(states['unit-north-army']?.x).toBeCloseTo(states['unit-north-corps']?.x ?? 0);
+
+    expect(states['unit-north-brigade-1']?.y).toBe(380);
+    expect(states['unit-north-brigade-4']?.y).toBe(380);
+    expect(states['unit-north-division']?.y).toBe(520);
+    expect(states['unit-north-division-2']?.y).toBe(520);
+    expect(states['unit-north-corps']?.y).toBe(660);
+    expect(states['unit-north-army']?.y).toBe(800);
   });
 
   it('applies per-echelon frontage overrides when placing formations', () => {

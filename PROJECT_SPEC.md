@@ -129,8 +129,11 @@ the order of battle is built or generated in the scenario builder.
   total. Formations are homogeneous by arm, remainders form smaller formations,
   and the whole army appends as one undoable edit without auto-deploying.
 - Deploy formations: move, rotate, resize frontage, label, hide. Deploying a
-  parent also places its undeployed subordinates in echelon rows in front, with
-  smaller formations ahead of larger ones.
+  parent also places and selects its undeployed subordinates. The auto-layout is
+  hierarchy-relative: children sit side by side in front of their own parent,
+  and each higher formation is centered behind its own children.
+- New formations deploy at 180° so their label sits below the rectangle with the
+  blank edge facing up; label text still flips upright automatically.
 - Brigades render as rectangular symbols; higher formations render as text labels
   with per-echelon font sizes, name styles (full, shortened, commander surname,
   or none), an uppercase display setting, and optional dynamic frontage scaled
@@ -159,7 +162,9 @@ formation blocks, rectangle and text formation rendering, per-echelon font and
 name display settings, dynamic frontage, label-based selection and dragging,
 formation editing, faction filtering, direct removal, multi-selection by
 marquee/Shift-click/hierarchy double-click, group drag and group rotation,
-configurable per-echelon default frontage, and separate terrain/unit modes.
+configurable per-echelon default frontage, parent-deployment bulk selection,
+hierarchy-relative auto-layout, a 180° default deployment orientation, and
+separate terrain/unit modes.
 Milestone M5.5 replaced roster-snapshot creation with map-only scenario creation
 and a scenario-owned editable order of battle, reduced the model to four
 echelons with brigade always smallest, added safe legacy migration, and added the

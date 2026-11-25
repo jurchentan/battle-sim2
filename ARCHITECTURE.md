@@ -270,8 +270,10 @@ cloned in `src/models/seed.ts`.
   with the existing selection, while an empty drag in Terrain mode still pans. Shift-click
   toggles one formation on the map or in the order of battle, and double-clicking
   a parent on either surface selects the parent plus its visible deployed
-  descendants. Screen-space marquee math lives in `features/scenario/marquee.ts`
-  and is unit-tested without mounting React.
+  descendants. Deploying a parent also selects the parent and every descendant
+  that received a deployment state in the same action. Screen-space marquee math
+  lives in `features/scenario/marquee.ts` and is unit-tested without mounting
+  React.
 - Dragging any selected formation moves the whole selection with it. The drag
   session records each member's start position, sibling Konva nodes and their
   separate label nodes are moved during the gesture, and only drag end commits
@@ -285,9 +287,11 @@ cloned in `src/models/seed.ts`.
   Delete/Backspace undeploys the selection through `undeployUnits`.
 - Scenario formations commit a single deployment edit on drag/transform end.
   Brigades render as filled rectangles; higher echelons render as text labels
-  centered on the deployment point. Labels live in rotated groups so they turn with the formation, and
-  text flips 180° when the normalized formation rotation is between 90° and
-  270° so names never read upside down. Label width is measured with the same
+  centered on the deployment point. Labels live in rotated groups so they turn
+  with the formation, and text flips 180° when the normalized formation rotation
+  is between 90° and 270° so names never read upside down. New formations start
+  at 180° so the label sits below the rectangle with the blank edge facing the
+  direction of advance. Label width is measured with the same
   font Konva renders, which prevents long names from clipping and keeps the
   transparent hit rectangle close to the visible text instead of spanning a
   fixed oversized block. Per-echelon font sizes, default frontage, name formats
@@ -296,7 +300,7 @@ cloned in `src/models/seed.ts`.
   `scenarioEditorStore`, not scenario document state. `placeUnit` passes the
   current default frontage map to `deployFormationStates`, which seeds every new
   unit state's `frontageLength` and uses the configured widths for automatic
-  echelon-row spacing. Changing a default never rewrites existing formations;
+  hierarchy-aware spacing. Changing a default never rewrites existing formations;
   their phase state keeps the frontage it was deployed with. Dynamic frontage
   scales the rendered rectangle by `effectiveStrength / 3000`; the stored
   frontage remains the length for a 3,000-strong formation and therefore the
@@ -312,11 +316,12 @@ cloned in `src/models/seed.ts`.
   Undo/redo covers deployment, movement, transform, label, removal, and direct
   removal from the inspector or order of battle.
 - Deploying a parent formation also creates phase state for every undeployed
-  descendant in the same history entry. Descendants are grouped into one
-  centered row per echelon, ordered with the smallest formations at the front
-  and larger formations behind, and the parent sits at the requested point
-  behind those rows. Already-deployed subordinates keep their existing
-  positions.
+  descendant in the same history entry. Descendants are laid out as a tidy tree:
+  each formation's children sit side by side in front of it, and each parent is
+  centered behind its own children, so separate divisions or corps never share a
+  single global echelon row. Already-deployed subordinates keep their existing
+  positions; their undeployed subordinates are promoted to the nearest new
+  ancestor's layout.
 - The left order-of-battle panel is the scenario's organization editor. It groups
   rows by faction and offers add faction, add unit, generate army, per-row
   add-subordinate, deploy/remove, and delete actions. Rows stay selectable,

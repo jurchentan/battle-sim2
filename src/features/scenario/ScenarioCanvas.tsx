@@ -6,6 +6,7 @@ import { useCameraStore } from '../../canvas/cameraStore';
 import type { Point, TerrainMap } from '../../models';
 import { useScenarioEditorStore } from '../../state/scenarioEditorStore';
 import { useScenarioStore } from '../../state/scenarioStore';
+import { descendantUnitIds } from '../army/rosterDocuments';
 import { currentCanvasBounds } from '../terrain/canvasBounds';
 import { isTypingTarget } from '../terrain/useEditorShortcuts';
 import {
@@ -297,7 +298,15 @@ export function ScenarioCanvas() {
       native.preventDefault();
       const result = placeUnit(placementUnitId, point, defaultFrontageByEchelon);
       if (result.ok) {
-        selectUnit(placementUnitId);
+        // Deploying a parent places its whole unresolved command, so select the
+        // parent and every descendant that now has a state in the active phase.
+        const placedDocument = useScenarioStore.getState().document;
+        const placedPhase = activeScenarioPhase(placedDocument);
+        const hierarchy = [
+          placementUnitId,
+          ...descendantUnitIds(placedDocument.orderOfBattle, placementUnitId),
+        ];
+        selectUnits(hierarchy.filter((unitId) => placedPhase?.unitStates[unitId]));
         cancelPlacement();
       }
       return;

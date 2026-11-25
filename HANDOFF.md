@@ -42,6 +42,13 @@ phases).
   both the roster and scenario stores.
 - The Army Roster workspace remains an optional reusable template library, with
   unsupported echelon and smallest-unit controls removed.
+- Deploying a parent now bulk-selects the parent and every descendant that was
+  just deployed, matching the existing hierarchy double-click selection.
+- Automatic deployment uses a tidy-tree layout: children sit side by side in
+  front of their own parent, and every higher formation is centered behind its
+  own children rather than sharing one global echelon row.
+- New formations deploy at 180° so their label sits below the rectangle with the
+  blank edge facing up; label text still flips upright automatically.
 - The seed demo scenario keeps its populated two-phase order of battle.
 
 ## Verification (all passing)
@@ -49,7 +56,7 @@ phases).
 ```bash
 npm run typecheck
 npm run lint               # one non-fatal Fast Refresh warning in FactionForm.tsx
-npm run test               # 19 files, 189 tests
+npm run test               # 19 files, 190 tests
 npx prettier --check .
 npm run build              # Vite chunk-size warning only
 npx playwright test        # 31 tests
@@ -64,10 +71,13 @@ New coverage includes:
   cross-phase deletion cascade, annotation cleanup, undo/redo, atomic generator
   commit, and rejection without document changes.
 - `scenarioDocuments.test.ts` and `schemas.test.ts` — empty OOB creation, legacy
-  `rosterSnapshot` migration, and legacy echelon normalization.
+  `rosterSnapshot` migration, legacy echelon normalization, 180° default
+  deployment rotation, and hierarchy-relative layout with separate division
+  branches.
 - `scenario-m5.spec.ts` — map-only scenario creation, generating two armies,
-  deploying 20 generated brigades, and the existing deployment, multi-selection,
-  label, faction-filter, and undo flows against builder-owned OOBs.
+  deploying 20 generated brigades, parent-deployment bulk selection, and the
+  existing deployment, multi-selection, label, faction-filter, rotation, and
+  undo flows against builder-owned OOBs.
 - `army-roster-tools.spec.ts` — subordinate creation from a supported parent and
   brigade strength roll-up, with the smallest-unit control confirmed absent.
 

@@ -112,10 +112,16 @@ test('deploys 20 generated brigades, edits formations, filters factions, and iso
     '21 formations · 2 factions · 20 deployed',
   );
 
-  // The last placed formation stays selected. Rotate it with the transformer
-  // handle before dragging from its center.
+  // The last placed formation stays selected. New deployments start at 180°,
+  // so reset it before computing the transformer handle or dragging.
   await expect(page.getByTestId('selected-unit-name')).toHaveText('8th Brigade');
   await expect(canvas).toHaveAttribute('data-selected-kind', 'rectangle');
+  await expect(page.getByTestId('selected-unit-rotation')).toHaveText('180°');
+  const initialRotation = page.getByLabel('Rotation');
+  await initialRotation.fill('0');
+  await initialRotation.press('Enter');
+  await expect(page.getByTestId('selected-unit-rotation')).toHaveText('0°');
+
   const formationsScale = Math.min((box.width - 96) / 2000, (box.height - 96) / 1400);
   const rotateHandle = {
     x: lastPoint.x,
@@ -279,6 +285,12 @@ test('renders higher echelons as text and applies display settings', async ({ pa
   await expect(canvas).toHaveAttribute('data-visible-formations', '8');
   await expect(canvas).toHaveAttribute('data-rectangle-formations', '6');
   await expect(canvas).toHaveAttribute('data-text-formations', '2');
+
+  // The newly deployed parent and its deployed descendants are selected together.
+  await expect(canvas).toHaveAttribute('data-selected-count', '5');
+  await expect(page.getByTestId('selected-unit-count')).toHaveText('5 formations selected');
+
+  await page.getByRole('button', { name: 'Select unit I Corps', exact: true }).click();
   await expect(canvas).toHaveAttribute('data-selected-kind', 'text');
   await expect(page.getByTestId('selected-unit-name')).toHaveText('I Corps');
   await expect(
@@ -389,8 +401,9 @@ test('uses configured per-echelon default frontage for new deployments', async (
   await expect(canvas).toHaveAttribute('data-placement', 'true');
   await page.mouse.click(box.x + 300, box.y + 220);
   await expect(canvas).toHaveAttribute('data-visible-formations', '8');
+  await expect(canvas).toHaveAttribute('data-selected-count', '5');
 
-  await expect(page.getByTestId('selected-unit-name')).toHaveText('I Corps');
+  await page.getByRole('button', { name: 'Select unit I Corps', exact: true }).click();
   await expect(page.getByTestId('selected-unit-frontage')).toHaveText('260 units');
 
   await page.getByRole('button', { name: 'Select unit Voss Division', exact: true }).click();
@@ -506,10 +519,14 @@ test('bulk-selects formations by marquee, Shift-click, and hierarchy double-clic
   await page.mouse.click(corpsPoint.x, corpsPoint.y);
   await expect(canvas).toHaveAttribute('data-visible-formations', '8');
 
-  box = await canvas.boundingBox();
-  if (!box) throw new Error('Scenario canvas has no bounding box after deploying a corps');
-  const corpsClickPoint = screenPoint(400, 300);
-  await page.mouse.dblclick(corpsClickPoint.x, corpsClickPoint.y);
+  // New parent deployments select the whole deployed command by default.
+  await expect(canvas).toHaveAttribute('data-selected-count', '5');
+  await expect(page.getByTestId('selected-unit-count')).toHaveText('5 formations selected');
+
+  // The hierarchy double-click still selects the same command explicitly.
+  await page.mouse.click(emptyPoint.x, emptyPoint.y);
+  await expect(canvas).toHaveAttribute('data-selected-count', '0');
+  await page.mouse.dblclick(corpsPoint.x, corpsPoint.y);
   await expect(canvas).toHaveAttribute('data-selected-count', '5');
   await expect(page.getByTestId('selected-unit-count')).toHaveText('5 formations selected');
 
