@@ -1,16 +1,17 @@
 # Architecture
 
-Status: M5 complete (scenario editor, deployment, and bulk formation selection).
+Status: M5.5 complete (scenario-owned orders of battle).
 Terrain editing supports area, path, symbol, and label tools, style controls,
 layer visibility/locking/z-order, object stacking and duplication, and
 simplified freehand drawing. The army workspace manages factions and hierarchical units
 with safe reparenting, generated or custom unit names, free-text commanders, a
-configurable smallest echelon, per-echelon default strengths, derived formation
-strength, and editable unit characteristics. Terrain and roster documents
-persist in IndexedDB with autosave, document management, and versioned JSON
-import/export. The scenario workspace composes snapshot battles, deploys
-formations, and edits active-phase deployment state; scenario persistence and
-phases arrive in M6-M7.
+fixed army/corps/division/brigade hierarchy with brigade as the smallest unit,
+per-echelon default strengths, derived formation strength, and editable unit
+characteristics. Terrain and roster documents persist in IndexedDB with autosave,
+document management, and versioned JSON import/export. The scenario workspace
+creates map-only snapshot battles, owns an editable order of battle built or
+generated in the builder, deploys formations, and edits active-phase deployment
+state. Scenarios remain in memory until M7; phases and annotations arrive in M6.
 
 ## 1. Stack and tooling
 
@@ -39,10 +40,10 @@ src/
   app/                 root shell, workspace tabs, workspace panels
   canvas/              camera math/store, geometry, layer ordering, Konva viewport
   components/          reusable presentational components
-  features/army/       roster editor, hierarchy helpers, library dialog, file format
+  features/army/       roster editor, hierarchy helpers, mutations, army generator, library dialog, file format
   features/files/      versioned JSON import/export and downloads
   features/library/    shared Dexie library, naming helpers, terrain library dialog
-  features/scenario/   scenario snapshots, deployment canvas, order of battle, inspector
+  features/scenario/   scenario snapshots, OOB builder, generator dialog, deployment canvas, inspector
   features/terrain/    toolbar, tool rail, layers, inspector, shortcuts, factories
   models/              TypeScript types, Zod schemas, seed documents, id helper
   state/               Zustand stores (workspace, camera, editor, terrain, roster, scenario, libraries)
@@ -84,55 +85,67 @@ cloned in `src/models/seed.ts`.
 
 ### ArmyRoster
 
-- `factions` and `units` in one reusable document.
-- `smallestUnitEchelon` (default `brigade`) defines the strength-bearing tier.
-  Units at or below it carry their own `initialStrength`; formations above it
-  expose a derived total of their subordinate units. Legacy rosters without the
-  field infer the deepest regular echelon on load so previously saved regiments
-  keep working.
-- Factions have per-echelon `namingModes`. `numeric-universal` generates names
-  such as `1st Brigade`, scoped by faction and echelon; `numeric-local` restarts
-  the sequence within each parent formation, so every division has its own 1st,
-  2nd, and so on; `commander` generates names such as `Johnsons Brigade` from the
-  unit's free-text commander and falls back to universal numbering when no
-  commander is set. Each echelon can use a different mode, so a faction can have
-  commander-style divisions and numbered brigades. Custom-named units do not
-  consume numbers in either numeric mode.
+- `factions` and `units` in one reusable document. Army rosters are optional
+  reusable templates; scenarios never load them automatically.
+- `smallestUnitEchelon` is fixed to `brigade`. Brigades carry their own
+  `initialStrength`; higher formations expose a derived total of their
+  subordinate brigades. Legacy rosters without the field, or with an older
+  smallest echelon, normalize to brigade.
+- Factions have per-echelon `namingModes` for the four supported echelons.
+  `numeric-universal` generates names such as `1st Brigade`, scoped by faction
+  and echelon; `numeric-local` restarts the sequence within each parent
+  formation, so every division has its own 1st, 2nd, and so on; `commander`
+  generates names such as `Johnsons Brigade` from the unit's free-text commander
+  and falls back to universal numbering when no commander is set. Each echelon
+  can use a different mode, so a faction can have commander-style divisions and
+  numbered brigades. Custom-named units do not consume numbers in either numeric
+  mode.
 - Units carry `factionId`, optional `customName`, optional free-text
   `commander`, `parentUnitId`, `echelon`, `unitType`, initial strength, and a
   default symbol style. A non-empty `customName` overrides generated naming.
-- The hierarchy is strictly ordered: a subordinate must sit below its parent
+- Supported echelons are `army`, `corps`, `division`, and `brigade` only.
+  The hierarchy is strictly ordered: a subordinate must sit below its parent
   (`corps` under `army`, `division` under `corps`, and so on). Equal or inverted
-  pairings are rejected by both the schema and the store, so an army can never
-  be added under a corps and a division can never be added under a brigade.
-  `other` is a leaf that can only appear below a regular formation.
+  pairings are rejected by both the schema and the store. `other` remains a
+  unit **type** for command or unspecified formations, but it is no longer an
+  echelon.
 - Factions own their `defaultStrengths` table for infantry, cavalry, and
-  artillery at every echelon, editable in the faction form. `defaultUnitStrength`
-  reads the unit's faction, and new units receive the value only at or below the
-  smallest echelon; `other` has no default.
-- `armyRosterSchema` preprocesses legacy rosters: an old unit `name` becomes
-  `customName`, `commanderId` resolves against the old `commanders` array into a
-  free-text `commander`, an old faction-level `namingMode` is copied onto every
-  echelon, missing naming modes and strength tables receive built-in defaults,
-  and the old `commanders` array is dropped.
+  artillery at every supported echelon, editable in the faction form.
+  `defaultUnitStrength` reads the unit's faction; brigades receive the value and
+  higher formations roll up from subordinates; `other` has no default.
+- `armyRosterSchema` preprocesses legacy rosters. Units using the retired
+  `regiment` or `other` echelons map to `brigade`; a migrated unit that would sit
+  at or above its parent is lifted to its nearest valid army/corps/division
+  ancestor, or made a root if none exists. The preprocessor also forces
+  `smallestUnitEchelon` to `brigade`, adds missing naming modes and strength
+  tables, drops unsupported echelon keys, converts an old unit `name` to
+  `customName`, resolves an old `commanderId` against the legacy `commanders`
+  array into a free-text `commander`, and drops the old `commanders` array.
+  Importing or loading a migrated roster persists the normalized document and
+  surfaces a notice such as “3 legacy echelons migrated to brigade.”
 - Validation rejects duplicate IDs, unknown factions, dangling parents,
   cross-faction parents, negative strength, equal or inverted echelon pairings,
-  and direct or indirect hierarchy cycles.
+  unsupported echelons, and direct or indirect hierarchy cycles.
 - The roster UI groups units by faction in an order-of-battle tree and edits the
   selected formation in place. Parent candidates exclude the unit, its
-  descendants, other factions, and units at or below the smallest echelon; the
-  store re-checks every reparenting attempt before committing. The default
-  hierarchy is army > corps > division > brigade, with regiment and other
-  echelons available.
+  descendants, other factions, and brigades; the store re-checks every
+  reparenting attempt before committing. The fixed hierarchy is
+  army > corps > division > brigade, and the smallest-unit setting is no longer
+  exposed.
 - Every non-leaf formation offers an inline add-subordinate action. Creation
   opens with that parent and the next echelon preselected, default strengths
   prefilled, and a live preview of the generated or custom name.
 - Faction deletion is blocked while units still belong to it.
+- `rosterMutations.ts` holds the shared pure add/update/delete/reparent helpers
+  used by both the army roster store and the scenario store.
 
 ### BattleScenario
 
-- Embeds deep `terrainSnapshot` and `rosterSnapshot`; no live references to the
-  libraries.
+- Embeds a deep `terrainSnapshot` and a scenario-owned `orderOfBattle`
+  (`ArmyRoster` shape); no live references to the libraries.
+- Creating a scenario chooses only a terrain map. The OOB starts empty, is named
+  “{Scenario name} order of battle”, and is built or generated in the scenario
+  builder. The seed demo scenario keeps a populated OOB.
 - Ordered `phases`, each with `unitStates` keyed by unit ID and an annotation
   list.
 - Unit state is the complete set of phase-varying data: position, rotation,
@@ -143,6 +156,12 @@ cloned in `src/models/seed.ts`.
   mismatches.
 - Scenario snapshots are created by copying; they are not linked to library
   documents.
+- `battleScenarioSchema` preprocesses legacy `rosterSnapshot` documents into
+  `orderOfBattle` and applies the same roster echelon migration.
+- Editing the OOB is scenario-local. Changing a unit's base name, commander, or
+  strength never mutates library documents, and deployment continues to read
+  from the scenario OOB. Editing OOB strength does not rewrite an already
+  deployed phase's effective strength.
 
 ### Identity rules
 
@@ -171,10 +190,17 @@ cloned in `src/models/seed.ts`.
   `expandCanvas`, `setSmallestUnitEchelon`, `addFaction`, `updateFaction`,
   `deleteFaction`, `addUnit`, `updateUnit`, `reparentUnit`, `deleteUnit`,
   `placeUnit`, `updateUnitState`, `updateUnitStates`, `undeployUnit`,
-  `undeployUnits`, later phase actions). The two bulk scenario actions validate
-  and commit the whole patch set as one history entry, so a group drag, group
-  rotation, or multi-removal is a single undo step and is rejected atomically if
-  any formation state is invalid.
+  `undeployUnits`, later phase actions). The scenario store exposes the same
+  roster actions against `document.orderOfBattle`, plus `generateArmy`; both
+  stores delegate to the shared `rosterMutations.ts` helpers. The two bulk
+  scenario actions validate and commit the whole patch set as one history entry,
+  so a group drag, group rotation, or multi-removal is a single undo step and is
+  rejected atomically if any formation state is invalid.
+- Scenario OOB edits are normal undoable document edits. Adding, editing, or
+  reparenting a formation commits one entry; deleting a formation removes its
+  phase states from every phase and clears annotation links in the same entry.
+  `generateArmy` validates and appends an entire army in one entry, and a
+  rejected plan leaves the document and history untouched.
 - Undo/redo is a snapshot history around committed document edits, capped at 100
   entries in `terrainStore`, `rosterStore`, and `scenarioStore`. Every roster and
   scenario mutation is validated against its Zod schema before entering history,
@@ -234,14 +260,14 @@ cloned in `src/models/seed.ts`.
   back to world geometry on commit.
 - Selection handles and guides live outside exported layers.
 - The scenario editor has two explicit modes. Terrain mode renders the snapshot
-  read-only for inspection plus transient layer visibility; units mode deploys
-  and edits formations. Selecting a formation or feature switches to the
-  corresponding mode. Faction and layer visibility filters are transient view
-  state and never mutate the scenario document.
+  read-only for inspection plus transient layer visibility; Order of battle mode
+  deploys, selects, and edits formations. Selecting a formation or feature
+  switches to the corresponding mode. Faction and layer visibility filters are
+  transient view state and never mutate the scenario document.
 - Scenario formation selection is additive and group-aware. An empty left-drag
-  in Units mode draws a screen-space marquee and selects every visible formation
-  whose shape or label bounds intersect it; Shift-drag unions the hits with the
-  existing selection, while an empty drag in Terrain mode still pans. Shift-click
+  in Order of battle mode draws a screen-space marquee and selects every visible
+  formation whose shape or label bounds intersect it; Shift-drag unions the hits
+  with the existing selection, while an empty drag in Terrain mode still pans. Shift-click
   toggles one formation on the map or in the order of battle, and double-clicking
   a parent on either surface selects the parent plus its visible deployed
   descendants. Screen-space marquee math lives in `features/scenario/marquee.ts`
@@ -258,9 +284,8 @@ cloned in `src/models/seed.ts`.
   The inspector offers a bulk rotation field and bulk removal, and
   Delete/Backspace undeploys the selection through `undeployUnits`.
 - Scenario formations commit a single deployment edit on drag/transform end.
-  Formations at or below the roster's smallest echelon render as filled
-  rectangles; higher echelons render as text labels centered on the deployment
-  point. Labels live in rotated groups so they turn with the formation, and
+  Brigades render as filled rectangles; higher echelons render as text labels
+  centered on the deployment point. Labels live in rotated groups so they turn with the formation, and
   text flips 180° when the normalized formation rotation is between 90° and
   270° so names never read upside down. Label width is measured with the same
   font Konva renders, which prevents long names from clipping and keeps the
@@ -292,6 +317,25 @@ cloned in `src/models/seed.ts`.
   and larger formations behind, and the parent sits at the requested point
   behind those rows. Already-deployed subordinates keep their existing
   positions.
+- The left order-of-battle panel is the scenario's organization editor. It groups
+  rows by faction and offers add faction, add unit, generate army, per-row
+  add-subordinate, deploy/remove, and delete actions. Rows stay selectable,
+  Shift-clickable, and hierarchy double-clickable like their map counterparts.
+  Adding a unit selects it; adding alone does not deploy it. The unit form shows
+  initial strength only for brigades and explains that higher formations roll up
+  from subordinates. Deleting a formation with subordinates is blocked; deleting
+  a deployed formation removes its state from every phase and clears annotation
+  links in one undo entry.
+- The generator is a pure module in `features/army/armyGenerator.ts`. It plans
+  and validates the whole force before creating IDs, then appends one homogeneous
+  faction army. Inputs are an existing or new faction, independent/division/
+  corps/army structure, brigades per division, divisions per corps, an optional
+  army name, and per-arm brigade counts with either a rough average per brigade
+  or an exact arm total. Zero-count arms are skipped; remainders form smaller
+  formations; higher formations have null initial strength and the army root
+  uses `other`. The dialog previews the tree and totals; commit is disabled on
+  invalid plans and appends everything as one undoable history entry. Generated
+  units are not auto-deployed.
 - Loading or creating a scenario resets the camera and transient editor state.
   Scenario snapshots are deep copies; library edits cannot reach them.
 
@@ -300,7 +344,7 @@ cloned in `src/models/seed.ts`.
 The Dexie database `battle-map-editor` is at schema version 4. It holds the
 `terrainMaps` and `armyRosters` tables, both indexed by `id`, `name`, and
 `updatedAt`. Version 3 briefly added a `unitPresets` table; version 4 drops it.
-Scenario documents live in memory in M5 and reset to the seeded demo on reload;
+Scenario documents live in memory in M5.5 and reset to the seeded demo on reload;
 a scenario table is added in M7 through another Dexie schema version.
 `localStorage` stores only the IDs of the last open terrain map and army roster
 (UI preferences), never document contents.
@@ -372,7 +416,15 @@ adds store tests for bulk state patches and atomic multi-removal, marquee
 geometry tests, and Playwright flows for deployment, single and group drag,
 single formation transforms, group rotation through the shared transformer
 handle, marquee and Shift-click multi-selection, hierarchy double-click,
-faction-filter cleanup, label dragging, and bulk removal with undo.
+faction-filter cleanup, label dragging, and bulk removal with undo. M5.5 adds
+generator planning/generation tests (independent brigades, divisions with
+remainders, corps, army roots, average and exact strengths, zero-count arms,
+invalid plans, existing and new factions, immutability), scenario store tests for
+map-only creation, OOB add/update/reparent/delete/cascade/undo, and atomic
+generator commits, schema tests for legacy `rosterSnapshot` and
+`regiment`/`other` migration, and Playwright coverage that creates a map-only
+scenario, generates two armies, deploys 20 brigades, and exercises the existing
+deployment and multi-selection flows against builder-owned OOBs.
 
 ## 8. Conventions
 

@@ -1,21 +1,23 @@
 # Battle Map Editor — Project Specification
 
-Status: M5 complete (scenario editor and deployment). Source of truth: `Readme.md`
-(engineering specification) plus `Info.md` (product vision). If documents
-disagree, `Readme.md` wins for implementation details. The terrain workspace
-supports area and path tools, symbols and labels, style editing, layer
+Status: M5.5 complete (scenario-owned orders of battle). Source of truth:
+`Readme.md` (engineering specification) plus `Info.md` (product vision). If
+documents disagree, `Readme.md` wins for implementation details. The terrain
+workspace supports area and path tools, symbols and labels, style editing, layer
 visibility/locking/z-order, object stacking, delete/duplicate, simplified
 freehand drawing, and a local IndexedDB library with autosave plus versioned
 JSON import/export. The army workspace manages factions and hierarchical units
-with safe reparenting, generated or custom unit names, free-text commanders,
-per-echelon default strengths, configurable smallest-unit strength roll-up, and
-its own IndexedDB library with autosave and versioned JSON import/export. The
-scenario workspace creates self-contained battles from saved terrain and roster
-snapshots, deploys formations with drag/rotate/frontage/label editing, renders
-smallest-echelon units as rectangles and higher echelons as configurable text
-labels, filters factions, removes formations directly with undo, and keeps
-terrain inspection separate from unit deployment. Scenario persistence, phase
-management, annotations, and exports remain scheduled for M6-M7.
+with safe reparenting, generated or custom unit names, free-text commanders, a
+fixed army/corps/division/brigade hierarchy with brigade as the smallest unit,
+per-echelon default strengths, derived strength roll-up, and its own IndexedDB
+library with autosave and versioned JSON import/export. The scenario workspace
+creates map-only snapshot battles, owns an editable order of battle built or
+generated directly in the scenario builder, deploys formations with
+drag/rotate/frontage/label editing, renders brigades as rectangles and higher
+echelons as configurable text labels, filters factions, removes formations
+directly with undo, and keeps terrain inspection separate from unit deployment.
+Scenario persistence, phase management, annotations, and exports remain scheduled
+for M6-M7.
 
 ## 1. Product summary
 
@@ -45,13 +47,16 @@ Three reusable document types, stored independently:
 
 1. **Terrain map** — geography only: forests, fields, water, rivers, roads,
    contours, structures, and labels. No military units or timeline.
-2. **Army roster** — factions and units with echelons, types, strengths, parent
-   relationships, and free-text commanders. Legal in isolation from terrain.
-3. **Battle scenario** — a self-contained snapshot of one terrain map and one
-   army roster, plus deployment states, ordered phases, and annotations.
+2. **Army roster** — an optional reusable template of factions and units with
+   echelons, types, strengths, parent relationships, and free-text commanders.
+   Legal in isolation from terrain.
+3. **Battle scenario** — a self-contained snapshot of one terrain map plus a
+   scenario-owned order of battle, deployment states, ordered phases, and
+   annotations.
 
 Snapshots are intentional: later edits to library terrain or rosters must not
-silently mutate existing scenarios.
+silently mutate existing scenarios. Scenarios never load rosters automatically;
+the order of battle is built or generated in the scenario builder.
 
 ## 4. Scope of v1
 
@@ -90,33 +95,46 @@ silently mutate existing scenarios.
   divisions and numbered brigades.
 - Free-text commanders and custom unit names. A non-empty custom name overrides
   the generated name.
-- Configurable hierarchy with default `army > corps > division > brigade`;
-  additional echelons (`regiment`, `other`) are allowed. Subordinates must sit
-  strictly below their parent, so higher formations cannot be nested under
-  lower ones.
-- Configurable smallest echelon (for example brigade or regiment). Units at or
-  below it carry their own strength; higher formations display the summed
-  strength of their subordinates.
+- Fixed four-echelon hierarchy: `army > corps > division > brigade`. `other`
+  remains a unit type, not an echelon. Subordinates must sit strictly below their
+  parent, so higher formations cannot be nested under lower ones.
+- Brigade is always the smallest unit. Brigades carry their own strength; higher
+  formations display the summed strength of their subordinates.
 - Per-faction, per-echelon default strengths for infantry, cavalry, and
-  artillery, editable in the faction form and applied when a new unit is at or
-  below the smallest echelon.
+  artillery, editable in the faction form and applied when a new brigade is
+  created.
 - Unit type, notes, and default symbol style.
-- Inline subordinate creation from any formation above the smallest echelon.
+- Inline subordinate creation from any formation above brigade.
 - Cycle and reference validation.
 - Roster library with import/export, including normalization of earlier rosters
-  that stored a unit name and a separate commander record.
+  that stored a unit name and a separate commander record. Legacy `regiment` and
+  `other` echelons migrate to brigades with their hierarchy repaired, and
+  migrated library documents save automatically with a visible notice.
+- Rosters remain an optional reusable template library; scenarios do not import
+  them automatically.
 
 ### Scenario editing
 
-- Create a scenario from copies of saved terrain and roster documents.
+- Create a scenario by choosing one saved terrain map. The scenario receives a
+  deep map snapshot and starts with an empty order of battle named
+  “{Scenario name} order of battle”. The map cannot be changed after creation.
+- Build the order of battle directly in the scenario builder: add and edit
+  factions and units, create subordinates, reparent safely, and delete
+  formations. Deleting a formation is blocked while it has subordinates and
+  removes its state from every phase plus any annotation links in one undoable
+  edit.
+- Generate an army semi-procedurally: choose an existing or new faction, a
+  command structure (independent brigades, divisions, corps, or a single army),
+  per-arm brigade counts, and either a rough average per brigade or an exact arm
+  total. Formations are homogeneous by arm, remainders form smaller formations,
+  and the whole army appends as one undoable edit without auto-deploying.
 - Deploy formations: move, rotate, resize frontage, label, hide. Deploying a
   parent also places its undeployed subordinates in echelon rows in front, with
   smaller formations ahead of larger ones.
-- Formations at or below the roster's smallest echelon render as rectangular
-  symbols; higher formations render as text labels with per-echelon font sizes,
-  name styles (full, shortened, commander surname, or none), an uppercase
-  display setting, and optional dynamic frontage scaled linearly from a
-  3,000-strong baseline.
+- Brigades render as rectangular symbols; higher formations render as text labels
+  with per-echelon font sizes, name styles (full, shortened, commander surname,
+  or none), an uppercase display setting, and optional dynamic frontage scaled
+  linearly from a 3,000-strong baseline.
 - Per-echelon default frontage is configurable in the editor and applied when a
   formation is first deployed. Existing deployments keep their own frontage.
 - Labels are measured to avoid clipping and rotate with formations, flipping
@@ -136,14 +154,17 @@ silently mutate existing scenarios.
 - Per-phase movement arrows, attack arrows, defense lines, highlights, and text.
 - Layer and phase visibility toggles.
 
-Milestone M5 implements snapshot creation, active-phase deployment including
-parent/subordinate formation blocks, rectangle and text formation rendering,
-per-echelon font and name display settings, dynamic frontage, label-based
-selection and dragging, formation editing, faction filtering, direct removal,
-multi-selection by marquee/Shift-click/hierarchy double-click, group drag and
-group rotation, configurable per-echelon default frontage, and separate
-terrain/unit modes. Phase management and annotations follow in M6; scenario
-persistence and export follow in M7.
+Milestone M5 implemented active-phase deployment including parent/subordinate
+formation blocks, rectangle and text formation rendering, per-echelon font and
+name display settings, dynamic frontage, label-based selection and dragging,
+formation editing, faction filtering, direct removal, multi-selection by
+marquee/Shift-click/hierarchy double-click, group drag and group rotation,
+configurable per-echelon default frontage, and separate terrain/unit modes.
+Milestone M5.5 replaced roster-snapshot creation with map-only scenario creation
+and a scenario-owned editable order of battle, reduced the model to four
+echelons with brigade always smallest, added safe legacy migration, and added the
+semi-procedural army generator. Phase management and annotations follow in M6;
+scenario persistence and export follow in M7.
 
 ### Persistence and export
 
@@ -181,7 +202,8 @@ A user can:
 3. Define two or more armies with commanders, strengths, brigades, and chains of
    command.
 4. Save and reopen reusable army rosters.
-5. Create a battle scenario from a saved terrain map and roster.
+5. Create a battle scenario from a saved terrain map, then build or generate its
+   order of battle in the scenario builder.
 6. Deploy, drag, rotate, resize, and label unit symbols.
 7. Duplicate a phase and alter positions, strengths, statuses, labels, and
    phase-specific arrows without changing earlier phases.

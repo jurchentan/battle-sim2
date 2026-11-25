@@ -1,16 +1,41 @@
-import type { BattleScenario, TerrainFeature, UnitDefinition } from '../../models';
+import { useState } from 'react';
+import type {
+  BattleScenario,
+  TerrainFeature,
+  UnitDefinition,
+  UnitEchelon,
+  UnitType,
+} from '../../models';
 import { useScenarioEditorStore } from '../../state/scenarioEditorStore';
 import { useScenarioStore } from '../../state/scenarioStore';
 import {
   ECHELON_LABELS,
+  ECHELON_ORDER,
   effectiveUnitStrength,
+  eligibleParentUnits,
+  hasSubordinates,
   hierarchyPath,
+  unitChildren,
   unitDisplayName,
 } from '../army/rosterDocuments';
-import { dangerButtonClass, primaryButtonClass, sectionHeadingClass } from '../army/ui';
+import {
+  dangerButtonClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+  sectionHeadingClass,
+  unitOptionLabel,
+} from '../army/ui';
 import { FEATURE_KIND_LABELS } from '../terrain/kinds';
-import { NumberField, TextField } from '../terrain/fields';
+import { NumberField, SelectField, TextField } from '../terrain/fields';
 import { activeScenarioPhase, scenarioUnitLabel } from './scenarioDocuments';
+
+const UNIT_TYPES: readonly UnitType[] = ['infantry', 'cavalry', 'artillery', 'other'];
+const UNIT_TYPE_LABELS: Record<UnitType, string> = {
+  infantry: 'Infantry',
+  cavalry: 'Cavalry',
+  artillery: 'Artillery',
+  other: 'Other',
+};
 
 function detailRow(label: string, value: string, testId?: string) {
   return (
@@ -41,21 +66,61 @@ function geometrySummary(feature: TerrainFeature): string {
 }
 
 function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: UnitDefinition }) {
+  const roster = scenario.orderOfBattle;
   const phase = activeScenarioPhase(scenario);
   const state = phase?.unitStates[unit.id];
+  const updateUnit = useScenarioStore((store) => store.updateUnit);
+  const reparentUnit = useScenarioStore((store) => store.reparentUnit);
+  const deleteUnit = useScenarioStore((store) => store.deleteUnit);
   const updateUnitState = useScenarioStore((store) => store.updateUnitState);
   const beginPlacement = useScenarioEditorStore((store) => store.beginPlacement);
   const placementUnitId = useScenarioEditorStore((store) => store.placementUnitId);
+  const selectUnit = useScenarioEditorStore((store) => store.selectUnit);
 
-  const faction = scenario.rosterSnapshot.factions.find(
-    (candidate) => candidate.id === unit.factionId,
-  );
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const faction = roster.factions.find((candidate) => candidate.id === unit.factionId);
   const displayName = scenarioUnitLabel(scenario, unit, state);
-  const generatedName = unitDisplayName(scenario.rosterSnapshot, unit);
-  const path = hierarchyPath(scenario.rosterSnapshot, unit.id)
-    .map((entry) => unitDisplayName(scenario.rosterSnapshot, entry))
+  const generatedName = unitDisplayName(roster, unit);
+  const path = hierarchyPath(roster, unit.id)
+    .map((entry) => unitDisplayName(roster, entry))
     .join(' › ');
-  const strength = effectiveUnitStrength(scenario.rosterSnapshot, unit.id);
+  const strength = effectiveUnitStrength(roster, unit.id);
+  const children = unitChildren(roster, unit.id);
+  const blockedDelete = hasSubordinates(roster, unit.id);
+  const parents = eligibleParentUnits(roster, unit.id);
+
+  const report = (result: { ok: true } | { ok: false; error: string }): void => {
+    setError(result.ok ? null : result.error);
+  };
+
+  const commitStrength = (value: string): void => {
+    const raw = value.trim();
+    if (raw === '') {
+      if (unit.initialStrength === null) return;
+      report(updateUnit(unit.id, { initialStrength: null }));
+      return;
+    }
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setError('Initial strength must be a non-negative number, or left blank.');
+      return;
+    }
+    if (parsed === unit.initialStrength) return;
+    report(updateUnit(unit.id, { initialStrength: parsed }));
+  };
+
+  const handleDelete = (): void => {
+    const result = deleteUnit(unit.id);
+    if (!result.ok) {
+      setError(result.error);
+      setConfirmDelete(false);
+      return;
+    }
+    selectUnit(null);
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -86,74 +151,115 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
         ) : null}
       </div>
 
-      {state ? (
-        <>
-          <div className="flex flex-col gap-2.5">
-            <h4 className={sectionHeadingClass}>Deployment</h4>
-            <TextField
-              label="Label override"
-              value={state.labelOverride ?? ''}
-              placeholder={generatedName}
-              onCommit={(value) => {
-                updateUnitState(unit.id, { labelOverride: value });
-              }}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField
-                label="Position X"
-                value={state.x}
-                step={1}
-                onCommit={(value) => updateUnitState(unit.id, { x: value })}
-              />
-              <NumberField
-                label="Position Y"
-                value={state.y}
-                step={1}
-                onCommit={(value) => updateUnitState(unit.id, { y: value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField
-                label="Frontage length"
-                value={state.frontageLength}
-                min={20}
-                step={5}
-                onCommit={(value) => updateUnitState(unit.id, { frontageLength: value })}
-              />
-              <NumberField
-                label="Rotation"
-                value={state.rotationDegrees}
-                step={1}
-                onCommit={(value) => updateUnitState(unit.id, { rotationDegrees: value })}
-              />
-            </div>
-          </div>
+      <div className="flex flex-col gap-2.5">
+        <h4 className={sectionHeadingClass}>Order of battle</h4>
+        <TextField
+          label="Custom name"
+          value={unit.customName ?? ''}
+          placeholder={generatedName}
+          onCommit={(value) => report(updateUnit(unit.id, { customName: value }))}
+        />
+        <TextField
+          label="Commander"
+          value={unit.commander ?? ''}
+          placeholder="Commander name"
+          onCommit={(value) => report(updateUnit(unit.id, { commander: value }))}
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <SelectField
+            label="Echelon"
+            value={unit.echelon}
+            options={ECHELON_ORDER.map((echelon) => ({
+              value: echelon,
+              label: ECHELON_LABELS[echelon],
+            }))}
+            onChange={(echelon: UnitEchelon) => report(updateUnit(unit.id, { echelon }))}
+          />
+          <SelectField
+            label="Unit type"
+            value={unit.unitType}
+            options={UNIT_TYPES.map((type) => ({
+              value: type,
+              label: UNIT_TYPE_LABELS[type],
+            }))}
+            onChange={(unitType: UnitType) => report(updateUnit(unit.id, { unitType }))}
+          />
+        </div>
+        <SelectField
+          label="Parent formation"
+          hint="Descendants and other factions are excluded to prevent cycles."
+          value={unit.parentUnitId ?? ''}
+          options={[
+            { value: '', label: 'None (root formation)' },
+            ...parents.map((parent) => ({
+              value: parent.id,
+              label: unitOptionLabel(roster, parent),
+            })),
+          ]}
+          onChange={(parentUnitId) =>
+            report(reparentUnit(unit.id, parentUnitId === '' ? null : parentUnitId))
+          }
+        />
+        {unit.echelon === 'brigade' ? (
+          <TextField
+            label="Initial strength"
+            value={unit.initialStrength === null ? '' : String(unit.initialStrength)}
+            placeholder="Unknown"
+            onCommit={commitStrength}
+          />
+        ) : (
+          <p className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-2.5 py-2 text-[0.68rem] leading-4 text-[#7c715c]">
+            Strength rolls up from brigades.
+          </p>
+        )}
+        <TextField
+          label="Notes"
+          value={unit.notes ?? ''}
+          onCommit={(value) => report(updateUnit(unit.id, { notes: value }))}
+        />
+      </div>
 
-          <div>
-            <h4 className={sectionHeadingClass}>Details</h4>
-            <dl className="mt-1">
-              {detailRow('Faction', faction?.name ?? 'Unknown', 'selected-unit-faction')}
-              {detailRow('Display label', displayName, 'selected-unit-label')}
-              {detailRow(
-                'Position',
-                `${Math.round(state.x)}, ${Math.round(state.y)}`,
-                'selected-unit-position',
-              )}
-              {detailRow(
-                'Frontage',
-                `${Math.round(state.frontageLength)} units`,
-                'selected-unit-frontage',
-              )}
-              {detailRow(
-                'Rotation',
-                `${Math.round(state.rotationDegrees)}°`,
-                'selected-unit-rotation',
-              )}
-              {detailRow('Strength', strength === null ? '—' : strength.toLocaleString())}
-              {detailRow('Command', path || '—')}
-            </dl>
+      {state ? (
+        <div className="flex flex-col gap-2.5">
+          <h4 className={sectionHeadingClass}>Deployment</h4>
+          <TextField
+            label="Label override"
+            value={state.labelOverride ?? ''}
+            placeholder={generatedName}
+            onCommit={(value) => {
+              updateUnitState(unit.id, { labelOverride: value });
+            }}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Position X"
+              value={state.x}
+              step={1}
+              onCommit={(value) => updateUnitState(unit.id, { x: value })}
+            />
+            <NumberField
+              label="Position Y"
+              value={state.y}
+              step={1}
+              onCommit={(value) => updateUnitState(unit.id, { y: value })}
+            />
           </div>
-        </>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Frontage length"
+              value={state.frontageLength}
+              min={20}
+              step={5}
+              onCommit={(value) => updateUnitState(unit.id, { frontageLength: value })}
+            />
+            <NumberField
+              label="Rotation"
+              value={state.rotationDegrees}
+              step={1}
+              onCommit={(value) => updateUnitState(unit.id, { rotationDegrees: value })}
+            />
+          </div>
+        </div>
       ) : (
         <div className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-3 py-2.5">
           <p className="text-xs font-semibold text-[#4a4438]">Not deployed in this phase</p>
@@ -169,6 +275,97 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
           </button>
         </div>
       )}
+
+      <div>
+        <h4 className={sectionHeadingClass}>Details</h4>
+        <dl className="mt-1">
+          {detailRow('Faction', faction?.name ?? 'Unknown', 'selected-unit-faction')}
+          {detailRow('Display label', displayName, 'selected-unit-label')}
+          {state
+            ? detailRow(
+                'Position',
+                `${Math.round(state.x)}, ${Math.round(state.y)}`,
+                'selected-unit-position',
+              )
+            : null}
+          {state
+            ? detailRow(
+                'Frontage',
+                `${Math.round(state.frontageLength)} units`,
+                'selected-unit-frontage',
+              )
+            : null}
+          {state
+            ? detailRow(
+                'Rotation',
+                `${Math.round(state.rotationDegrees)}°`,
+                'selected-unit-rotation',
+              )
+            : null}
+          {detailRow('Strength', strength === null ? '—' : strength.toLocaleString())}
+          {detailRow('Command', path || '—')}
+          {children.length > 0 ? detailRow('Subordinates', String(children.length)) : null}
+        </dl>
+      </div>
+
+      <div className="flex flex-col gap-1.5 border-t border-[#e0d6c1] pt-3">
+        {confirmDelete ? (
+          <>
+            <p className="text-[0.68rem] font-semibold text-[#8b3a2f]">
+              Delete this formation and remove its phase states from every phase?
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className={dangerButtonClass}
+                onClick={handleDelete}
+                data-testid="confirm-delete-unit"
+              >
+                Confirm delete
+              </button>
+              <button
+                type="button"
+                className={secondaryButtonClass}
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            className={`${dangerButtonClass} self-start`}
+            data-testid="delete-unit"
+            disabled={blockedDelete}
+            title={
+              blockedDelete
+                ? 'Delete or reparent subordinate formations first.'
+                : 'Delete this formation from the order of battle.'
+            }
+            onClick={() => {
+              if (state) {
+                setConfirmDelete(true);
+              } else {
+                handleDelete();
+              }
+            }}
+          >
+            Delete unit
+          </button>
+        )}
+        {blockedDelete ? (
+          <p className="text-[0.64rem] leading-4 text-[#857a64]">
+            Delete or reparent the {children.length} subordinate formation
+            {children.length === 1 ? '' : 's'} first.
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-[0.68rem] font-medium text-[#8b3a2f]">
+            {error}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -218,6 +415,7 @@ function MultiUnitInspector({
   scenario: BattleScenario;
   units: UnitDefinition[];
 }) {
+  const roster = scenario.orderOfBattle;
   const phase = activeScenarioPhase(scenario);
   const updateUnitStates = useScenarioStore((store) => store.updateUnitStates);
   const undeployUnits = useScenarioStore((store) => store.undeployUnits);
@@ -269,16 +467,14 @@ function MultiUnitInspector({
         <h4 className={sectionHeadingClass}>Selection</h4>
         <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
           {units.map((unit) => {
-            const faction = scenario.rosterSnapshot.factions.find(
-              (candidate) => candidate.id === unit.factionId,
-            );
+            const faction = roster.factions.find((candidate) => candidate.id === unit.factionId);
             return (
               <li
                 key={unit.id}
                 className="flex items-baseline justify-between gap-2 border-b border-dashed border-[#ded3bd] py-1 text-xs"
               >
                 <span className="min-w-0 truncate font-medium text-[#4a4438]">
-                  {unitDisplayName(scenario.rosterSnapshot, unit)}
+                  {unitDisplayName(roster, unit)}
                 </span>
                 <span className="shrink-0 text-[0.62rem] text-[#857a64]">
                   {ECHELON_LABELS[unit.echelon]} · {faction?.name ?? 'Unknown'}
@@ -305,13 +501,14 @@ function MultiUnitInspector({
 }
 
 export function ScenarioInspector({ scenario }: { scenario: BattleScenario }) {
+  const roster = scenario.orderOfBattle;
   const mode = useScenarioEditorStore((state) => state.mode);
   const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
   const selectedFeatureId = useScenarioEditorStore((state) => state.selectedFeatureId);
   const selectedUnits =
     mode === 'units'
       ? selectedUnitIds.flatMap((unitId) => {
-          const unit = scenario.rosterSnapshot.units.find((candidate) => candidate.id === unitId);
+          const unit = roster.units.find((candidate) => candidate.id === unitId);
           return unit ? [unit] : [];
         })
       : [];
@@ -349,24 +546,24 @@ export function ScenarioInspector({ scenario }: { scenario: BattleScenario }) {
                 {scenario.name}
               </p>
               <p className="mt-1 text-xs text-[#7c715c]">
-                {mode === 'terrain' ? 'Terrain mode' : 'Units mode'} ·{' '}
+                {mode === 'terrain' ? 'Terrain mode' : 'Order of battle mode'} ·{' '}
                 {phase?.name ?? 'No active phase'}
               </p>
             </div>
 
             <dl>
               {detailRow('Terrain snapshot', scenario.terrainSnapshot.name)}
-              {detailRow('Roster snapshot', scenario.rosterSnapshot.name)}
+              {detailRow('Order of battle', roster.name)}
               {detailRow('Terrain features', String(scenario.terrainSnapshot.features.length))}
-              {detailRow('Factions', String(scenario.rosterSnapshot.factions.length))}
+              {detailRow('Factions', String(roster.factions.length))}
               {detailRow('Deployed formations', String(deployedCount))}
-              {detailRow('Roster formations', String(scenario.rosterSnapshot.units.length))}
+              {detailRow('Formations', String(roster.units.length))}
             </dl>
 
             <p className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-2.5 py-2 text-[0.68rem] leading-4 text-[#7c715c]">
               {mode === 'terrain'
                 ? 'Click a terrain feature to inspect it. Terrain is a read-only snapshot in the scenario.'
-                : 'Choose a faction in the order of battle, deploy a formation, then click the map. Select a formation to drag it, resize its frontage, rotate it, or edit its label.'}
+                : 'Add factions and formations in the order of battle, or generate an army. Select a formation to edit it, then deploy it and click the map.'}
             </p>
           </div>
         )}

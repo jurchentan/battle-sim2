@@ -68,11 +68,9 @@ export function UnitFormationLayer({
   const phase = activeScenarioPhase(scenario);
   const entries = useMemo<FormationEntry[]>(() => {
     if (!phase) return [];
-    const unitsById = new Map(
-      scenario.rosterSnapshot.units.map((unit) => [unit.id, unit] as const),
-    );
+    const unitsById = new Map(scenario.orderOfBattle.units.map((unit) => [unit.id, unit] as const));
     const factionsById = new Map(
-      scenario.rosterSnapshot.factions.map((faction) => [faction.id, faction] as const),
+      scenario.orderOfBattle.factions.map((faction) => [faction.id, faction] as const),
     );
     const hidden = new Set(hiddenFactionIds);
 
@@ -87,7 +85,7 @@ export function UnitFormationLayer({
           entry !== null && entry.state.visible && !hidden.has(entry.faction.id),
       )
       .sort((a, b) => a.unit.id.localeCompare(b.unit.id));
-  }, [hiddenFactionIds, phase, scenario.rosterSnapshot.factions, scenario.rosterSnapshot.units]);
+  }, [hiddenFactionIds, phase, scenario.orderOfBattle.factions, scenario.orderOfBattle.units]);
 
   const handleSelect = (unitId: string, additive: boolean): void => {
     if (additive) {
@@ -101,7 +99,7 @@ export function UnitFormationLayer({
     const availableUnitIds = new Set(entries.map((entry) => entry.unit.id));
     if (!availableUnitIds.has(unitId)) return;
 
-    const subordinateIds = descendantUnitIds(scenario.rosterSnapshot, unitId);
+    const subordinateIds = descendantUnitIds(scenario.orderOfBattle, unitId);
     const selection = [unitId, ...subordinateIds].filter((id) => availableUnitIds.has(id));
     selectUnits(selection);
   };
@@ -207,7 +205,7 @@ export function UnitFormationLayer({
           )}
           renderAsRectangle={isRectangleFormation(
             unit.echelon,
-            scenario.rosterSnapshot.smallestUnitEchelon,
+            scenario.orderOfBattle.smallestUnitEchelon,
           )}
           renderFrontageLength={renderedFrontageLength(
             state.frontageLength,

@@ -40,6 +40,8 @@ export function RosterToolbar({ roster }: { roster: ArmyRoster }) {
   const lastSavedAt = useRosterLibraryStore((state) => state.lastSavedAt);
   const error = useRosterLibraryStore((state) => state.error);
   const clearError = useRosterLibraryStore((state) => state.clearError);
+  const migrationNotice = useRosterLibraryStore((state) => state.migrationNotice);
+  const dismissMigrationNotice = useRosterLibraryStore((state) => state.dismissMigrationNotice);
   const saveNow = useRosterLibraryStore((state) => state.saveNow);
   const duplicateRoster = useRosterLibraryStore((state) => state.duplicateRoster);
   const importRosterText = useRosterLibraryStore((state) => state.importRosterText);
@@ -156,6 +158,23 @@ export function RosterToolbar({ roster }: { roster: ArmyRoster }) {
           </button>
         </div>
       </div>
+
+      {migrationNotice ? (
+        <div
+          role="status"
+          data-testid="roster-migration-notice"
+          className="flex items-start justify-between gap-3 border-t border-[#d8c08a] bg-[#f7edd3] px-4 py-2 text-xs text-[#7a6028]"
+        >
+          <span>{migrationNotice}</span>
+          <button
+            type="button"
+            className="shrink-0 font-semibold underline"
+            onClick={dismissMigrationNotice}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       {error ? (
         <div

@@ -131,7 +131,7 @@ describe('scenario editor store', () => {
     store.setFormationLabelFormat('army', 'commander');
     store.setFormationLabelFormat('brigade', 'none');
     store.setDefaultFrontage('brigade', 155.6);
-    store.setDefaultFrontage('regiment', 4);
+    store.setDefaultFrontage('division', 4);
     store.setDefaultFrontage('corps', 5000);
     store.setUppercaseFormationLabels(true);
     store.setDynamicFrontage(true);
@@ -149,7 +149,7 @@ describe('scenario editor store', () => {
     expect(useScenarioEditorStore.getState().defaultFrontageByEchelon).toMatchObject({
       army: DEFAULT_FRONTAGE_BY_ECHELON.army,
       brigade: 156,
-      regiment: 20,
+      division: 20,
       corps: 2000,
     });
     expect(useScenarioEditorStore.getState().uppercaseFormationLabels).toBe(true);

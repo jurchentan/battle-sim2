@@ -7,6 +7,7 @@ import {
   getRosterRecord,
   listRosterRecords,
   putRosterRecord,
+  takeRosterMigrationCount,
 } from '../features/army/rosterLibraryDb';
 import { copyName, uniqueName } from '../features/library/documentNames';
 import { useRosterStore } from './rosterStore';
@@ -42,6 +43,7 @@ interface RosterLibraryState {
   rosters: RosterSummary[];
   lastSavedAt: string | null;
   error: string | null;
+  migrationNotice: string | null;
   initialize: () => Promise<void>;
   refreshRosters: () => Promise<void>;
   newRoster: (options?: NewRosterOptions) => Promise<void>;
@@ -53,6 +55,7 @@ interface RosterLibraryState {
   importRosterText: (text: string) => Promise<RosterImportResult>;
   scheduleAutosave: () => void;
   clearError: () => void;
+  dismissMigrationNotice: () => void;
 }
 
 function summarize(document: ArmyRoster): RosterSummary {
@@ -68,6 +71,12 @@ function summarize(document: ArmyRoster): RosterSummary {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function migrationNotice(): string | null {
+  const count = takeRosterMigrationCount();
+  if (count <= 0) return null;
+  return `${count} legacy echelon${count === 1 ? '' : 's'} migrated to brigade.`;
 }
 
 function readLastRosterId(): string | null {
@@ -136,6 +145,7 @@ export const useRosterLibraryStore = create<RosterLibraryState>()((set, get) => 
     rosters: [],
     lastSavedAt: null,
     error: null,
+    migrationNotice: null,
 
     initialize: async () => {
       if (get().ready) return;
@@ -159,14 +169,16 @@ export const useRosterLibraryStore = create<RosterLibraryState>()((set, get) => 
 
           loadIntoEditor(document);
           writeLastRosterId(document.id);
-          set({
+          const notice = migrationNotice();
+          set((state) => ({
             ready: true,
             activeRosterId: document.id,
             rosters: records.map(summarize),
             status: 'saved',
             lastSavedAt: new Date().toISOString(),
             error: null,
-          });
+            migrationNotice: notice ?? state.migrationNotice,
+          }));
         } catch (error) {
           set({
             ready: true,
@@ -182,7 +194,11 @@ export const useRosterLibraryStore = create<RosterLibraryState>()((set, get) => 
     refreshRosters: async () => {
       try {
         const records = await listRosterRecords();
-        set({ rosters: records.map(summarize) });
+        const notice = migrationNotice();
+        set((state) => ({
+          rosters: records.map(summarize),
+          migrationNotice: notice ?? state.migrationNotice,
+        }));
       } catch (error) {
         set({ error: `Could not read the army roster library: ${errorMessage(error)}` });
       }
@@ -417,5 +433,7 @@ export const useRosterLibraryStore = create<RosterLibraryState>()((set, get) => 
     },
 
     clearError: () => set({ error: null }),
+
+    dismissMigrationNotice: () => set({ migrationNotice: null }),
   };
 });

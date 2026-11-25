@@ -1,10 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { ArmyRoster, TerrainMap } from '../../models';
-import { listRosterRecords } from '../army/rosterLibraryDb';
+import type { TerrainMap } from '../../models';
 import { fieldClass, primaryButtonClass, secondaryButtonClass } from '../army/ui';
 import { listTerrainMapRecords } from '../library/terrainLibraryDb';
 import { useLibraryStore } from '../../state/libraryStore';
-import { useRosterLibraryStore } from '../../state/rosterLibraryStore';
 import { useScenarioStore } from '../../state/scenarioStore';
 
 export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
@@ -13,9 +11,7 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('Untitled scenario');
   const [description, setDescription] = useState('');
   const [terrains, setTerrains] = useState<TerrainMap[]>([]);
-  const [rosters, setRosters] = useState<ArmyRoster[]>([]);
   const [terrainId, setTerrainId] = useState('');
-  const [rosterId, setRosterId] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
@@ -26,33 +22,19 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
 
     const loadSources = async (): Promise<void> => {
       try {
-        await Promise.all([
-          useLibraryStore.getState().saveNow(),
-          useRosterLibraryStore.getState().saveNow(),
-        ]);
-        const [terrainRecords, rosterRecords] = await Promise.all([
-          listTerrainMapRecords(),
-          listRosterRecords(),
-        ]);
+        await useLibraryStore.getState().saveNow();
+        const terrainRecords = await listTerrainMapRecords();
         if (cancelled) return;
 
         setTerrains(terrainRecords);
-        setRosters(rosterRecords);
-
         const activeMapId = useLibraryStore.getState().activeMapId;
-        const activeRosterId = useRosterLibraryStore.getState().activeRosterId;
         setTerrainId(
           terrainRecords.find((map) => map.id === activeMapId)?.id ?? terrainRecords[0]?.id ?? '',
-        );
-        setRosterId(
-          rosterRecords.find((roster) => roster.id === activeRosterId)?.id ??
-            rosterRecords[0]?.id ??
-            '',
         );
       } catch (error) {
         if (!cancelled) {
           setSourceError(
-            `Could not read the terrain or army libraries: ${
+            `Could not read the terrain library: ${
               error instanceof Error ? error.message : String(error)
             }`,
           );
@@ -77,18 +59,17 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const terrain = terrains.find((candidate) => candidate.id === terrainId);
-  const roster = rosters.find((candidate) => candidate.id === rosterId);
   const validationError = !name.trim()
     ? 'Enter a scenario name.'
     : loading
-      ? 'Loading saved terrain maps and rosters…'
-      : !terrain || !roster
-        ? 'Choose a saved terrain map and army roster.'
+      ? 'Loading saved terrain maps…'
+      : !terrain
+        ? 'Choose a saved terrain map.'
         : null;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (validationError || submitting || !terrain || !roster) return;
+    if (validationError || submitting || !terrain) return;
 
     setSubmitting(true);
     setSubmitError(null);
@@ -97,7 +78,6 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
         name: name.trim(),
         description,
         terrain,
-        roster,
       });
       if (result.ok) {
         onClose();
@@ -132,11 +112,11 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
             id="new-scenario-heading"
             className="font-display mt-1 text-2xl font-semibold text-[#2f2b23]"
           >
-            Combine a battlefield and order of battle
+            Choose a battlefield
           </h2>
           <p className="mt-1 text-xs text-[#7c715c]">
-            The scenario receives independent snapshot copies. Later changes to the terrain map or
-            roster do not alter this battle.
+            The scenario receives an independent snapshot of the map and starts with an empty order
+            of battle. Later changes to the terrain library do not alter this battle.
           </p>
         </header>
 
@@ -180,36 +160,26 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
               </select>
             </label>
 
-            <label className="flex flex-col gap-1 text-xs font-medium text-[#5f594b]">
-              Army roster
-              <select
-                value={rosterId}
-                onChange={(event) => setRosterId(event.target.value)}
-                disabled={loading}
-                className={fieldClass}
-              >
-                {rosters.length === 0 ? <option value="">No saved army rosters</option> : null}
-                {rosters.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name} · {candidate.units.length} formations
-                  </option>
-                ))}
-              </select>
-            </label>
-
             {loading ? (
               <p className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-3 py-2 text-xs text-[#6b6353]">
-                Reading the local terrain and army libraries…
+                Reading the local terrain library…
               </p>
-            ) : terrain && roster ? (
+            ) : terrain ? (
               <p
                 data-testid="new-scenario-source-summary"
                 className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-3 py-2 text-xs text-[#6b6353]"
               >
-                Snapshot: {terrain.width} × {terrain.height} terrain · {roster.units.length}{' '}
-                formations in {roster.factions.length} factions.
+                Snapshot: {terrain.width} × {terrain.height} terrain with {terrain.features.length}{' '}
+                features. The order of battle starts empty.
               </p>
-            ) : null}
+            ) : (
+              <p
+                role="alert"
+                className="rounded-md border border-[#d3b3a8] bg-[#f9ede8] px-3 py-2 text-xs text-[#8b3a2f]"
+              >
+                No saved terrain maps are available. Create one in the Terrain workspace first.
+              </p>
+            )}
 
             {sourceError ? (
               <p role="alert" className="text-xs font-medium text-[#8b3a2f]">
@@ -237,7 +207,7 @@ export function NewScenarioDialog({ onClose }: { onClose: () => void }) {
             <button
               type="submit"
               className={primaryButtonClass}
-              disabled={Boolean(validationError) || !terrain || !roster || submitting}
+              disabled={Boolean(validationError) || !terrain || submitting}
             >
               {submitting ? 'Creating…' : 'Create scenario'}
             </button>

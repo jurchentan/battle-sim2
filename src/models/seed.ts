@@ -273,8 +273,6 @@ const commanderNamingModes: FactionNamingModes = {
   corps: 'commander',
   division: 'commander',
   brigade: 'commander',
-  regiment: 'commander',
-  other: 'commander',
 };
 
 const factions: Faction[] = [
@@ -665,13 +663,16 @@ const attackPhase: BattlePhase = {
 };
 
 export function createSeedBattleScenario(): BattleScenario {
+  const orderOfBattle = createSeedRoster();
+  orderOfBattle.name = 'Action at Ashford Ford order of battle';
+
   return {
     schemaVersion: SCHEMA_VERSION,
     id: 'scenario-ashford-demo',
     name: 'Action at Ashford Ford',
-    description: 'Two-phase demonstration battle built on the Ashford terrain and rosters.',
+    description: 'Two-phase demonstration battle built on the Ashford terrain and order of battle.',
     terrainSnapshot: createSeedTerrainMap(),
-    rosterSnapshot: createSeedRoster(),
+    orderOfBattle,
     phases: [structuredClone(initialPhase), structuredClone(attackPhase)],
     activePhaseId: 'phase-initial',
     createdAt: SEED_TIMESTAMP,

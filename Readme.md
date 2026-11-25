@@ -12,7 +12,7 @@ Non-negotiable scope:
 - Work offline after installation. No accounts, server, cloud database, or collaboration required in v1.
 
 1. Definition of done
-   A user can (1) draw an editable terrain map from a blank canvas; (2) save the terrain to a local library and reopen it; (3) define two or more armies with commanders, strengths, brigades, and chain of command; (4) save/reopen reusable army rosters; (5) create a battle scenario by selecting a saved terrain map and rosters; (6) deploy, drag, rotate, resize, and label unit symbols; (7) duplicate a phase and alter positions, strengths, statuses, commanders, and phase-specific movement arrows without changing previous phases; (8) toggle layers and phases; (9) save/reopen/export/import an entire scenario; and (10) export a polished map image of any phase.
+   A user can (1) draw an editable terrain map from a blank canvas; (2) save the terrain to a local library and reopen it; (3) define two or more armies with commanders, strengths, brigades, and chain of command; (4) save/reopen reusable army rosters; (5) create a battle scenario by selecting a saved terrain map and build or generate its order of battle in the scenario builder; (6) deploy, drag, rotate, resize, and label unit symbols; (7) duplicate a phase and alter positions, strengths, statuses, commanders, and phase-specific movement arrows without changing previous phases; (8) toggle layers and phases; (9) save/reopen/export/import an entire scenario; and (10) export a polished map image of any phase.
 2. Tech stack
 
 - Vite + React + TypeScript, strict type checking.
@@ -29,7 +29,7 @@ Non-negotiable scope:
    Primary workspaces:
 1. Terrain Editor: draw and manage reusable terrain. Military units and timeline are not editable here.
 1. Army Roster Editor: create factions, units, hierarchy, naming, and unit default characteristics.
-1. Scenario Editor: combine a snapshot of a terrain map and army roster(s), deploy units, create phases and annotations, and export maps.
+1. Scenario Editor: start from a snapshot of a saved terrain map, build or generate the scenario's order of battle, deploy units, create phases and annotations, and export maps.
    Desktop layout:
 
 - Top menu: New / Open / Save / Duplicate / Import / Export / Undo / Redo / Settings.
@@ -58,23 +58,23 @@ Non-negotiable scope:
    }
    kind in v1: forest | field | river | road | contour | lake | swamp | building | bridge | fortification | label | customPath. Geometries must be discriminated unions, e.g. point, polyline, polygon, or text anchor, with typed styles. Do not store Konva objects in documents. Positions are document coordinates, never zoom-adjusted screen pixels. Preserve exact points when saving/loading.
    4.2 Armies and order of battle
-   Faction { id, name, color, labelColor?, namingModes: { army?, corps?, division?, brigade?, regiment?, other?: 'numeric-universal'|'numeric-local'|'commander' }, defaultStrengths: { infantry, cavalry, artillery }, notes? }
+   Faction { id, name, color, labelColor?, namingModes: { army?, corps?, division?, brigade?: 'numeric-universal'|'numeric-local'|'commander' }, defaultStrengths: { infantry, cavalry, artillery }, notes? }
    UnitDefinition {
    id, factionId, customName?,
-   echelon: 'army'|'corps'|'division'|'brigade'|'regiment'|'other',
+   echelon: 'army'|'corps'|'division'|'brigade',
    unitType: 'infantry'|'cavalry'|'artillery'|'other',
    parentUnitId: string|null,
    commander?: string,
    initialStrength: number|null,
    defaultSymbolStyle, notes?
    }
-   ArmyRoster { schemaVersion, id, name, factions, units, createdAt, updatedAt }
-   No assumptions about real-world armies or command structures; allow custom names and other echelons. Unit display names are generated per faction and echelon: universal numbering counts every peer in the faction (`1st Brigade`, `2nd Brigade`), local numbering restarts inside each parent formation so every division has its own `1st Brigade`, `2nd Brigade`, and so on, and commander style uses the free-text commander (`Johnsons Brigade`). Each echelon can choose its own style, so a faction can use commander-style divisions and numbered brigades at the same time. A non-empty `customName` overrides the generated name, and custom-named units do not consume numbers. Commander style falls back to universal numbering when no commander is set. Factions also carry per-echelon default strengths for infantry, cavalry, and artillery; these fill the initial strength of new units at or below the roster's smallest deployable echelon and are editable in the faction form. Parent and child must belong to same faction by default, and a subordinate must sit strictly below its parent (corps under army, division under corps, and so on), so higher formations cannot be nested under lower ones. Block cycles in parentUnitId (including indirect cycles). Validate duplicate IDs, dangling parent references, and negative strength. Brigade is default deployable echelon, but the renderer should not forbid representing divisions or other units.
+   ArmyRoster { schemaVersion, id, name, smallestUnitEchelon: 'brigade', factions, units, createdAt, updatedAt }
+   No assumptions about real-world armies or command structures; allow custom names and the `other` unit type. Supported echelons are only army, corps, division, and brigade; brigade is always the smallest unit. Unit display names are generated per faction and echelon: universal numbering counts every peer in the faction (`1st Brigade`, `2nd Brigade`), local numbering restarts inside each parent formation so every division has its own `1st Brigade`, `2nd Brigade`, and so on, and commander style uses the free-text commander (`Johnsons Brigade`). Each echelon can choose its own style, so a faction can use commander-style divisions and numbered brigades at the same time. A non-empty `customName` overrides the generated name, and custom-named units do not consume numbers. Commander style falls back to universal numbering when no commander is set. Factions also carry per-echelon default strengths for infantry, cavalry, and artillery; these fill the initial strength of new brigades and are editable in the faction form. Parent and child must belong to the same faction, and a subordinate must sit strictly below its parent (corps under army, division under corps, and so on), so higher formations cannot be nested under lower ones. Block cycles in parentUnitId (including indirect cycles). Validate duplicate IDs, dangling parent references, unsupported echelons, and negative strength. Legacy rosters using `regiment` or `other` echelons migrate to brigades and repair any hierarchy that would become invalid. Rosters remain optional reusable templates; scenarios never load them automatically.
    4.3 Scenario and timeline
    BattleScenario {
    schemaVersion, id, name, description?,
    terrainSnapshot: TerrainMap,
-   rosterSnapshot: ArmyRoster,
+   orderOfBattle: ArmyRoster,
    phases: BattlePhase[],
    activePhaseId, createdAt, updatedAt
    }
@@ -104,7 +104,7 @@ Non-negotiable scope:
 - Renaming a unit in the roster updates its base name globally; phase-specific naming uses explicit overrides.
 - A unit may be absent/hidden in some phases; newly added units must have defined behavior in earlier phases (e.g. invisible until introduced).
 - Movement arrows are manually created, independent of unit positions, and belong to a single phase; arrows do not move units automatically.
-- Terrain and roster are snapshotted when a scenario is created. Edits to master library maps/rosters do not silently change existing scenarios. Later explicit 'replace/update from library' can be a separate feature, not v1.
+- The terrain map is snapshotted when a scenario is created. Army rosters are never loaded automatically; each scenario owns an editable order of battle that is built or generated in the scenario builder. Edits to library terrain or roster templates do not silently change existing scenarios. Later explicit 'replace/update from library' can be a separate feature, not v1.
 - All UI state (selected tool, zoom, selected object) is transient and separate from persistent document data, except optional saved viewport preferences.
 
 5. Canvas, coordinates and interaction engine
@@ -133,7 +133,7 @@ Keep rendering layers distinct and ordered:
 - Object selection, drag, resize, rotate (where applicable), duplicate, delete, reorder, lock/hide layer.
   Art direction: warm cream/yellow fields, muted green woodland shapes, thin gray/tan roads, pale blue water, subtle contour curves, black/dark geographic labels, bold faction-colored lines and labels. Define reusable presets (e.g. historical-light), but allow user customization. Use vector fills/patterns instead of large raster images. Avoid hardcoding Union/Confederate names or blue/red semantics: colors are faction settings.
 
-Formation symbols: formations at or below the roster's smallest echelon render as filled faction-colored rectangles representing frontage, while higher echelons render as text labels with larger per-echelon default sizes. Display settings configure per-echelon font sizes, default frontage for newly deployed formations, uppercase labels, name style, and dynamic frontage. Name styles are full formation name (`2nd Brigade`, `Smith Division`, `Stonewall Brigade`), shortened (`2nd`, `Smith`, `Stonewall`), commander surname (`Bob`, `Smith`, `Jackson`), or no name. Dynamic frontage scales rendered rectangle length linearly with formation strength, using the configured length as the size for a 3,000-strong formation. Color, thickness, dash, and label position remain customizable. Labels are measured to their actual text width so long names are never clipped, and their hit areas stay close to the visible name. Labels rotate with their formation and flip 180° when the formation is upside down so names stay legible. Clicking or dragging a name selects and moves its formation. User can drag the entire formation, rotate using the transformer handle, resize length without changing strength, and optionally edit multi-segment frontage line later. Drag a selection rectangle on empty canvas to select several formations, Shift-click to add or remove one, or double-click a parent to select its deployed command; dragging any selected member moves the whole group, the shared transformer handle rotates the group around its center, and the inspector exposes bulk rotation and removal. Frontage is a graphical size, not an automatic troop strength calculation. Show army hierarchy and formation name via inspector/labels. Movement arrows can have editable control points and arrowhead style.
+Formation symbols: brigades render as filled faction-colored rectangles representing frontage, while higher echelons render as text labels with larger per-echelon default sizes. Display settings configure per-echelon font sizes, default frontage for newly deployed formations, uppercase labels, name style, and dynamic frontage. Name styles are full formation name (`2nd Brigade`, `Smith Division`, `Stonewall Brigade`), shortened (`2nd`, `Smith`, `Stonewall`), commander surname (`Bob`, `Smith`, `Jackson`), or no name. Dynamic frontage scales rendered rectangle length linearly with formation strength, using the configured length as the size for a 3,000-strong formation. Color, thickness, dash, and label position remain customizable. Labels are measured to their actual text width so long names are never clipped, and their hit areas stay close to the visible name. Labels rotate with their formation and flip 180° when the formation is upside down so names stay legible. Clicking or dragging a name selects and moves its formation. User can drag the entire formation, rotate using the transformer handle, resize length without changing strength, and optionally edit multi-segment frontage line later. Drag a selection rectangle on empty canvas to select several formations, Shift-click to add or remove one, or double-click a parent to select its deployed command; dragging any selected member moves the whole group, the shared transformer handle rotates the group around its center, and the inspector exposes bulk rotation and removal. Frontage is a graphical size, not an automatic troop strength calculation. Show army hierarchy and formation name via inspector/labels. Movement arrows can have editable control points and arrowhead style.
 
 Important: A geographic fortification is either terrain/static infrastructure; a newly occupied/constructed breastwork relevant only to a phase should be represented as a phase tactical annotation. Avoid conflating both concepts. 7. Persistence and file formats
 Maintain three separate local libraries:
@@ -205,10 +205,16 @@ Every import:
 - Army roster local library and import/export.
   Pass: create army > corps > division > 3 brigades for two sides; reject cyclic chain of command; persist and reopen.
   M5 — Scenario editor and deployment
-- Create scenario from copies of saved terrain map and roster(s).
-- Place formations (rectangles at or below the smallest echelon, text for higher formations); deploying a parent also places its undeployed subordinates in front, with smaller formations ahead of larger ones. Select, drag, rotate, resize frontage, edit labels, adjust per-echelon font and name styles plus dynamic frontage, filter faction visibility, and remove formations directly with undo.
+- Place formations (brigade rectangles, text for higher formations); deploying a parent also places its undeployed subordinates in front, with smaller formations ahead of larger ones. Select, drag, rotate, resize frontage, edit labels, adjust per-echelon font and name styles plus dynamic frontage, filter faction visibility, and remove formations directly with undo.
 - Keep units and terrain in distinct editing modes/layers.
   Pass: deploy at least 20 brigades; move formations without changing forest/roads; modifying source terrain map doesn't mutate existing scenario.
+  M5.5 — Scenario-owned orders of battle
+- Create a scenario from a saved terrain map only; the order of battle starts empty and is edited in the scenario builder.
+- Add, edit, delete, reparent, and deploy factions/units directly; deleting a formation cascades through all phases and annotations as one undo entry.
+- Support only army/corps/division/brigade, with brigade always smallest; migrate legacy `regiment`/`other` documents safely.
+- Generate a homogeneous army per faction from per-arm brigade counts with average or exact strengths, committed as one undo entry.
+- Keep the Army Roster workspace as an optional template library with unsupported echelon and smallest-unit controls removed.
+  Pass: create a map-only scenario, generate and deploy at least 20 brigades, verify legacy migration, and pass all checks.
   M6 — Battle phases
 - Add/duplicate/delete/reorder/rename phase; timeline toggle.
 - Fully isolated per-phase unit states and phase-specific arrows/annotations.

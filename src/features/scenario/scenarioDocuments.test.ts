@@ -55,7 +55,7 @@ describe('scenario document helpers', () => {
       name: '  Gate Scenario  ',
       description: '  Snapshot deployment  ',
       terrain,
-      roster,
+      orderOfBattle: roster,
     });
 
     expect(battleScenarioSchema.safeParse(scenario).success).toBe(true);
@@ -74,7 +74,7 @@ describe('scenario document helpers', () => {
       name: 'No description',
       description: '   ',
       terrain: createSeedTerrainMap(),
-      roster: gateRoster(),
+      orderOfBattle: gateRoster(),
     });
 
     expect(scenario.description).toBeUndefined();
@@ -82,15 +82,35 @@ describe('scenario document helpers', () => {
       createScenarioDocument({
         name: '   ',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     ).toThrow();
+  });
+
+  it('starts a map-only scenario with an empty order of battle', () => {
+    const terrain = createSeedTerrainMap();
+    const scenario = createScenarioDocument({
+      name: '  Empty Order  ',
+      terrain,
+    });
+
+    expect(battleScenarioSchema.safeParse(scenario).success).toBe(true);
+    expect(scenario.orderOfBattle.name).toBe('Empty Order order of battle');
+    expect(scenario.orderOfBattle.smallestUnitEchelon).toBe('brigade');
+    expect(scenario.orderOfBattle.factions).toEqual([]);
+    expect(scenario.orderOfBattle.units).toEqual([]);
+    expect(scenario.phases[0]?.unitStates).toEqual({});
+    expect(scenario.phases[0]?.annotations).toEqual([]);
   });
 
   it('copies terrain and roster snapshots independently of the library sources', () => {
     const terrain = createSeedTerrainMap();
     const roster = gateRoster();
-    const scenario = createScenarioDocument({ name: 'Independent', terrain, roster });
+    const scenario = createScenarioDocument({
+      name: 'Independent',
+      terrain,
+      orderOfBattle: roster,
+    });
 
     terrain.name = 'Edited terrain source';
     terrain.features[0]!.name = 'Edited feature';
@@ -100,12 +120,12 @@ describe('scenario document helpers', () => {
 
     expect(scenario.terrainSnapshot.name).toBe('Ashford Ford');
     expect(scenario.terrainSnapshot.features[0]?.name).toBe('North Wood');
-    expect(scenario.rosterSnapshot.name).toBe('Gate Roster');
-    expect(scenario.rosterSnapshot.units[0]?.customName).toBe('Gate Brigade 01');
-    expect(scenario.rosterSnapshot.factions[0]?.name).toBe('Northern League');
+    expect(scenario.orderOfBattle.name).toBe('Gate Roster');
+    expect(scenario.orderOfBattle.units[0]?.customName).toBe('Gate Brigade 01');
+    expect(scenario.orderOfBattle.factions[0]?.name).toBe('Northern League');
 
     scenario.terrainSnapshot.name = 'Edited scenario terrain';
-    scenario.rosterSnapshot.units[0]!.customName = 'Edited scenario brigade';
+    scenario.orderOfBattle.units[0]!.customName = 'Edited scenario brigade';
 
     expect(terrain.name).toBe('Edited terrain source');
     expect(roster.units[0]?.customName).toBe('Edited brigade');
@@ -130,15 +150,12 @@ describe('scenario document helpers', () => {
 
   it('classifies rectangles at or below the smallest echelon and scales text by echelon', () => {
     expect(isRectangleFormation('brigade', 'brigade')).toBe(true);
-    expect(isRectangleFormation('regiment', 'brigade')).toBe(true);
-    expect(isRectangleFormation('other', 'brigade')).toBe(true);
 
     expect(isRectangleFormation('division', 'brigade')).toBe(false);
     expect(isRectangleFormation('corps', 'brigade')).toBe(false);
     expect(isRectangleFormation('army', 'brigade')).toBe(false);
 
-    expect(isRectangleFormation('other', 'other')).toBe(true);
-    expect(isRectangleFormation('regiment', 'other')).toBe(false);
+    expect(isRectangleFormation('brigade', 'brigade')).toBe(true);
 
     expect(DEFAULT_FORMATION_FONT_SIZES.army).toBeGreaterThan(DEFAULT_FORMATION_FONT_SIZES.corps);
     expect(DEFAULT_FORMATION_FONT_SIZES.corps).toBeGreaterThan(
@@ -146,9 +163,6 @@ describe('scenario document helpers', () => {
     );
     expect(DEFAULT_FORMATION_FONT_SIZES.division).toBeGreaterThan(
       DEFAULT_FORMATION_FONT_SIZES.brigade,
-    );
-    expect(DEFAULT_FORMATION_FONT_SIZES.brigade).toBeGreaterThan(
-      DEFAULT_FORMATION_FONT_SIZES.regiment,
     );
   });
 
@@ -217,13 +231,11 @@ describe('scenario document helpers', () => {
   });
 
   it('defaults higher echelons to full names and lower echelons to shortened names', () => {
-    expect(DEFAULT_FORMATION_LABEL_FORMATS).toMatchObject({
+    expect(DEFAULT_FORMATION_LABEL_FORMATS).toEqual({
       army: 'full',
       corps: 'full',
       division: 'full',
       brigade: 'shortened',
-      regiment: 'shortened',
-      other: 'shortened',
     });
   });
 
@@ -231,9 +243,9 @@ describe('scenario document helpers', () => {
     const scenario = createScenarioDocument({
       name: 'Label styles',
       terrain: createSeedTerrainMap(),
-      roster: createSeedRoster(),
+      orderOfBattle: createSeedRoster(),
     });
-    const units = new Map(scenario.rosterSnapshot.units.map((unit) => [unit.id, unit] as const));
+    const units = new Map(scenario.orderOfBattle.units.map((unit) => [unit.id, unit] as const));
     const division = units.get('unit-north-division');
     const army = units.get('unit-north-army');
     const southernBrigade = units.get('unit-south-brigade-1');
@@ -291,9 +303,9 @@ describe('scenario document helpers', () => {
     const scenario = createScenarioDocument({
       name: 'Labels',
       terrain: createSeedTerrainMap(),
-      roster,
+      orderOfBattle: roster,
     });
-    const unit = scenario.rosterSnapshot.units[0]!;
+    const unit = scenario.orderOfBattle.units[0]!;
 
     expect(scenarioUnitLabel(scenario, unit)).toBe('Gate Brigade 01');
     expect(
@@ -323,7 +335,7 @@ describe('scenario document helpers', () => {
     const scenario = createScenarioDocument({
       name: 'Missing phase',
       terrain: createSeedTerrainMap(),
-      roster: gateRoster(),
+      orderOfBattle: gateRoster(),
     });
 
     expect(activeScenarioPhase({ ...scenario, activePhaseId: 'missing' })).toBeNull();

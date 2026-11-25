@@ -246,14 +246,9 @@ export const terrainMapSchema = z
   });
 export type TerrainMap = z.infer<typeof terrainMapSchema>;
 
-export const unitEchelonSchema = z.enum([
-  'army',
-  'corps',
-  'division',
-  'brigade',
-  'regiment',
-  'other',
-]);
+export const SUPPORTED_UNIT_ECHELONS = ['army', 'corps', 'division', 'brigade'] as const;
+
+export const unitEchelonSchema = z.enum(SUPPORTED_UNIT_ECHELONS);
 export type UnitEchelon = z.infer<typeof unitEchelonSchema>;
 
 export const unitTypeSchema = z.enum(['infantry', 'cavalry', 'artillery', 'other']);
@@ -267,8 +262,6 @@ export const factionNamingModesSchema = z.object({
   corps: factionNamingModeSchema.default('numeric-universal'),
   division: factionNamingModeSchema.default('numeric-universal'),
   brigade: factionNamingModeSchema.default('numeric-universal'),
-  regiment: factionNamingModeSchema.default('numeric-universal'),
-  other: factionNamingModeSchema.default('numeric-universal'),
 });
 export type FactionNamingModes = z.infer<typeof factionNamingModesSchema>;
 
@@ -277,8 +270,6 @@ const echelonStrengthValuesSchema = z.object({
   corps: z.number().nonnegative(),
   division: z.number().nonnegative(),
   brigade: z.number().nonnegative(),
-  regiment: z.number().nonnegative(),
-  other: z.number().nonnegative(),
 });
 
 export const factionDefaultStrengthsSchema = z.object({
@@ -295,24 +286,18 @@ export const DEFAULT_FACTION_STRENGTHS: FactionDefaultStrengths = {
     corps: 10000,
     division: 5000,
     brigade: 1500,
-    regiment: 500,
-    other: 500,
   },
   cavalry: {
     army: 8000,
     corps: 4000,
     division: 2000,
     brigade: 800,
-    regiment: 300,
-    other: 300,
   },
   artillery: {
     army: 3000,
     corps: 1500,
     division: 800,
     brigade: 300,
-    regiment: 100,
-    other: 100,
   },
 };
 
@@ -322,8 +307,6 @@ export function defaultFactionNamingModes(): FactionNamingModes {
     corps: 'numeric-universal',
     division: 'numeric-universal',
     brigade: 'numeric-universal',
-    regiment: 'numeric-universal',
-    other: 'numeric-universal',
   };
 }
 
@@ -370,10 +353,141 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+const LEGACY_ECHELON_MAP: Readonly<Record<string, UnitEchelon>> = {
+  regiment: 'brigade',
+  other: 'brigade',
+};
+
+const NAMING_MODE_VALUES: readonly FactionNamingMode[] = [
+  'numeric-universal',
+  'numeric-local',
+  'commander',
+];
+
+const STRENGTH_TYPES = ['infantry', 'cavalry', 'artillery'] as const;
+
+function asNamingMode(value: unknown): FactionNamingMode | null {
+  return typeof value === 'string' && NAMING_MODE_VALUES.includes(value as FactionNamingMode)
+    ? (value as FactionNamingMode)
+    : null;
+}
+
+function migratedEchelon(value: unknown): unknown {
+  return typeof value === 'string' && value in LEGACY_ECHELON_MAP
+    ? LEGACY_ECHELON_MAP[value]
+    : value;
+}
+
+function echelonRankValue(value: unknown): number {
+  return typeof value === 'string' ? unitEchelonSchema.options.indexOf(value as UnitEchelon) : -1;
+}
+
+/** Number of raw roster units whose echelon was removed in M5.5. */
+export function legacyEchelonCount(value: unknown): number {
+  const roster = asRecord(value);
+  if (!roster || !Array.isArray(roster.units)) return 0;
+  return roster.units.reduce((count, unit) => {
+    const echelon = asRecord(unit)?.echelon;
+    return echelon === 'regiment' || echelon === 'other' ? count + 1 : count;
+  }, 0);
+}
+
 /**
- * Accepts army rosters written before dynamic naming and free-text commanders.
- * Legacy units stored a required `name` and a `commanderId` reference into a
- * separate commanders array; those values become `customName` and `commander`.
+ * Repairs hierarchies that became invalid after regiment/other units collapsed
+ * into brigades. An invalid child is lifted to the nearest valid ancestor, or
+ * promoted to a root formation when no valid ancestor exists.
+ */
+function repairMigratedHierarchy(units: Record<string, unknown>[]): void {
+  const unitsById = new Map(
+    units.flatMap((unit) => (typeof unit.id === 'string' ? [[unit.id, unit] as const] : [])),
+  );
+
+  const isValidParent = (
+    child: Record<string, unknown>,
+    parent: Record<string, unknown>,
+  ): boolean => {
+    const childRank = echelonRankValue(child.echelon);
+    const parentRank = echelonRankValue(parent.echelon);
+    return childRank > 0 && parentRank >= 0 && childRank > parentRank;
+  };
+
+  for (const unit of units) {
+    const parentId = unit.parentUnitId;
+    if (typeof parentId !== 'string') continue;
+
+    const parent = unitsById.get(parentId);
+    if (!parent || isValidParent(unit, parent)) continue;
+
+    const seen = new Set<string>([parentId]);
+    if (typeof unit.id === 'string') seen.add(unit.id);
+    let candidateId = parent.parentUnitId;
+    let replacementId: string | null = null;
+
+    while (typeof candidateId === 'string' && !seen.has(candidateId)) {
+      seen.add(candidateId);
+      const candidate = unitsById.get(candidateId);
+      if (!candidate) break;
+      if (isValidParent(unit, candidate)) {
+        replacementId = candidateId;
+        break;
+      }
+      candidateId = candidate.parentUnitId;
+    }
+
+    unit.parentUnitId = replacementId;
+  }
+}
+
+function normalizeNamingModes(record: Record<string, unknown>): FactionNamingModes {
+  const existingModes = asRecord(record.namingModes);
+  const legacyFallback =
+    asNamingMode(record.namingMode) ??
+    (record.namingMode === 'numeric' ? 'numeric-universal' : null) ??
+    asNamingMode(existingModes?.brigade) ??
+    asNamingMode(existingModes?.regiment) ??
+    'numeric-universal';
+
+  return Object.fromEntries(
+    SUPPORTED_UNIT_ECHELONS.map((echelon) => {
+      const mode =
+        asNamingMode(existingModes?.[echelon]) ??
+        (echelon === 'brigade' ? asNamingMode(existingModes?.regiment) : null) ??
+        legacyFallback;
+      return [echelon, mode];
+    }),
+  ) as FactionNamingModes;
+}
+
+function normalizeDefaultStrengths(value: unknown): FactionDefaultStrengths | undefined {
+  const existing = asRecord(value);
+  if (!existing) return undefined;
+
+  const isNonnegativeNumber = (candidate: unknown): candidate is number =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0;
+
+  const strengths = {} as FactionDefaultStrengths;
+  for (const type of STRENGTH_TYPES) {
+    const row = asRecord(existing[type]);
+    const normalized = {} as Record<UnitEchelon, number>;
+    for (const echelon of SUPPORTED_UNIT_ECHELONS) {
+      const candidate = row?.[echelon];
+      const legacyBrigadeValue = echelon === 'brigade' ? row?.regiment : undefined;
+      normalized[echelon] = isNonnegativeNumber(candidate)
+        ? candidate
+        : isNonnegativeNumber(legacyBrigadeValue)
+          ? legacyBrigadeValue
+          : DEFAULT_FACTION_STRENGTHS[type][echelon];
+    }
+    strengths[type] = normalized;
+  }
+  return strengths;
+}
+
+/**
+ * Accepts army rosters written before dynamic naming and free-text commanders,
+ * and migrates the retired regiment/other echelons into brigades. Legacy units
+ * stored a required `name` and a `commanderId` reference into a separate
+ * commanders array; those values become `customName` and `commander`.
  */
 function normalizeArmyRosterInput(value: unknown): unknown {
   const roster = asRecord(value);
@@ -390,35 +504,24 @@ function normalizeArmyRosterInput(value: unknown): unknown {
     }
   }
 
+  const rawUnits = Array.isArray(roster.units) ? roster.units : [];
+  const hasLegacyEchelons = rawUnits.some((unit) => {
+    const echelon = asRecord(unit)?.echelon;
+    return echelon === 'regiment' || echelon === 'other';
+  });
+
   const factions = Array.isArray(roster.factions)
     ? roster.factions.map((faction) => {
         const record = asRecord(faction);
         if (!record) return faction;
 
-        const { namingMode: legacyMode, ...rest } = record;
-        const existingModes = asRecord(rest.namingModes);
-        const fallback: FactionNamingMode =
-          legacyMode === 'numeric'
-            ? 'numeric-universal'
-            : legacyMode === 'numeric-universal' ||
-                legacyMode === 'numeric-local' ||
-                legacyMode === 'commander'
-              ? legacyMode
-              : 'numeric-universal';
-
-        const namingModes = Object.fromEntries(
-          unitEchelonSchema.options.map((echelon) => {
-            const mode = existingModes?.[echelon];
-            return [
-              echelon,
-              mode === 'numeric-universal' || mode === 'numeric-local' || mode === 'commander'
-                ? mode
-                : fallback,
-            ];
-          }),
-        );
-
-        return { ...rest, namingModes };
+        const { namingMode: _legacyMode, ...rest } = record;
+        const defaultStrengths = normalizeDefaultStrengths(rest.defaultStrengths);
+        return {
+          ...rest,
+          namingModes: normalizeNamingModes(record),
+          ...(defaultStrengths === undefined ? {} : { defaultStrengths }),
+        };
       })
     : roster.factions;
 
@@ -444,14 +547,19 @@ function normalizeArmyRosterInput(value: unknown): unknown {
         const { name: _name, commanderId: _commanderId, ...rest } = record;
         return {
           ...rest,
+          echelon: migratedEchelon(rest.echelon),
           ...(customName === undefined ? {} : { customName }),
           ...(commander === undefined ? {} : { commander }),
         };
       })
     : roster.units;
 
+  if (hasLegacyEchelons && Array.isArray(units)) {
+    repairMigratedHierarchy(units.flatMap((unit) => (asRecord(unit) ? [asRecord(unit)!] : [])));
+  }
+
   const { commanders: _commanders, ...rest } = roster;
-  return { ...rest, factions, units };
+  return { ...rest, smallestUnitEchelon: 'brigade', factions, units };
 }
 
 function unitEchelonRank(echelon: UnitEchelon): number {
@@ -495,7 +603,7 @@ const armyRosterObjectSchema = z
     schemaVersion: z.literal(SCHEMA_VERSION),
     id: idSchema,
     name: nameSchema,
-    smallestUnitEchelon: unitEchelonSchema.default('brigade'),
+    smallestUnitEchelon: z.literal('brigade').default('brigade'),
     factions: z.array(factionSchema),
     units: z.array(unitDefinitionSchema),
     createdAt: isoDateSchema,
@@ -654,14 +762,23 @@ const scenarioBaseSchema = z.object({
   name: nameSchema,
   description: z.string().optional(),
   terrainSnapshot: terrainMapSchema,
-  rosterSnapshot: armyRosterSchema,
+  orderOfBattle: armyRosterSchema,
   phases: z.array(battlePhaseSchema).min(1, 'A scenario needs at least one phase'),
   activePhaseId: idSchema,
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });
 
-export const battleScenarioSchema = scenarioBaseSchema.superRefine((scenario, ctx) => {
+function normalizeScenarioInput(value: unknown): unknown {
+  const scenario = asRecord(value);
+  if (!scenario) return value;
+  if ('orderOfBattle' in scenario || !('rosterSnapshot' in scenario)) return scenario;
+
+  const { rosterSnapshot, ...rest } = scenario;
+  return { ...rest, orderOfBattle: rosterSnapshot };
+}
+
+const scenarioObjectSchema = scenarioBaseSchema.superRefine((scenario, ctx) => {
   addDuplicateIdIssues(scenario.phases, ctx, ['phases'], 'phase');
 
   if (!scenario.phases.some((phase) => phase.id === scenario.activePhaseId)) {
@@ -672,7 +789,7 @@ export const battleScenarioSchema = scenarioBaseSchema.superRefine((scenario, ct
     });
   }
 
-  const unitIds = new Set(scenario.rosterSnapshot.units.map((unit) => unit.id));
+  const unitIds = new Set(scenario.orderOfBattle.units.map((unit) => unit.id));
 
   scenario.phases.forEach((phase, phaseIndex) => {
     Object.entries(phase.unitStates).forEach(([unitId]) => {
@@ -696,4 +813,6 @@ export const battleScenarioSchema = scenarioBaseSchema.superRefine((scenario, ct
     });
   });
 });
+
+export const battleScenarioSchema = z.preprocess(normalizeScenarioInput, scenarioObjectSchema);
 export type BattleScenario = z.infer<typeof battleScenarioSchema>;

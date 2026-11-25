@@ -1,96 +1,33 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const factionColors = {
-  alpha: '#2f5d8a',
-  beta: '#8a3f2f',
-} as const;
-
-function brigade(
-  factionId: string,
-  color: string,
-  name: string,
-  index: number,
-  unitType: 'infantry' | 'cavalry' | 'artillery',
-) {
-  return {
-    id: `unit-${factionId}-${index}`,
-    factionId,
-    customName: name,
-    echelon: 'brigade',
-    unitType,
-    parentUnitId: null,
-    commander: `Captain ${name} `,
-    initialStrength: unitType === 'artillery' ? 600 : 1500,
-    defaultSymbolStyle: {
-      color,
-      thickness: 5,
-      dash: [],
-      labelPosition: 'below',
-    },
-  };
+function factionSection(page: Page, factionName: string) {
+  return page.locator(`section[aria-label="Faction ${factionName}"]`);
 }
 
-const alphaNames = Array.from(
-  { length: 11 },
-  (_, index) => `Alpha Brigade ${String(index + 1).padStart(2, '0')}`,
-);
-const betaNames = Array.from(
-  { length: 10 },
-  (_, index) => `Beta Brigade ${String(index + 1).padStart(2, '0')}`,
-);
+async function generateIndependentArmy(
+  page: Page,
+  options: { factionName: string; brigades: number },
+): Promise<void> {
+  await page.getByTestId('oob-generate-army').click();
+  const dialog = page.getByTestId('generate-army-dialog');
+  await expect(dialog).toBeVisible();
 
-function gateRoster() {
-  const timestamp = new Date().toISOString();
+  await dialog.getByLabel('Generator faction').selectOption('__new__');
+  await dialog.getByLabel('New faction name').fill(options.factionName);
+  await dialog.getByLabel('Command structure').selectOption('independent');
 
-  return {
-    schemaVersion: 1,
-    id: 'gate-roster-m5',
-    name: 'Gate Roster',
-    smallestUnitEchelon: 'brigade',
-    factions: [
-      {
-        id: 'faction-alpha',
-        name: 'Alpha League',
-        color: factionColors.alpha,
-      },
-      {
-        id: 'faction-beta',
-        name: 'Beta Crown',
-        color: factionColors.beta,
-      },
-    ],
-    units: [
-      ...alphaNames.map((name, index) =>
-        brigade('faction-alpha', factionColors.alpha, name, index + 1, 'infantry'),
-      ),
-      ...betaNames.map((name, index) =>
-        brigade(
-          'faction-beta',
-          factionColors.beta,
-          name,
-          index + 1,
-          index === betaNames.length - 1 ? 'artillery' : 'cavalry',
-        ),
-      ),
-    ],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-}
+  await dialog
+    .getByTestId('generator-arm-infantry')
+    .getByLabel('Brigades')
+    .fill(String(options.brigades));
+  await dialog.getByTestId('generator-arm-cavalry').getByLabel('Brigades').fill('0');
+  await dialog.getByTestId('generator-arm-artillery').getByLabel('Brigades').fill('0');
 
-async function importGateRoster(page: Page): Promise<void> {
-  await page.getByRole('tab', { name: 'Army Roster Editor' }).click();
-  await expect(page.getByRole('heading', { name: 'Army Roster Editor' })).toBeVisible();
-
-  await page.getByTestId('army-import-input').setInputFiles({
-    name: 'gate-roster.army.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify(gateRoster())),
-  });
-
-  await expect(page.getByTestId('current-roster-name')).toHaveText('Gate Roster');
-  await expect(page.getByTestId('roster-summary')).toContainText('2 factions · 21 units');
-  await expect(page.getByTestId('roster-save-status')).toHaveText('Saved', { timeout: 5_000 });
+  await expect(dialog.getByTestId('generator-summary')).toContainText(
+    `${options.brigades} brigades`,
+  );
+  await dialog.getByRole('button', { name: 'Generate army' }).click();
+  await expect(dialog).not.toBeVisible();
 }
 
 async function createGateScenario(page: Page): Promise<void> {
@@ -102,22 +39,36 @@ async function createGateScenario(page: Page): Promise<void> {
   const dialog = page.getByTestId('new-scenario-dialog');
   await expect(dialog).toBeVisible();
 
-  await expect(dialog.getByTestId('new-scenario-source-summary')).toContainText('21 formations');
+  await expect(dialog.getByTestId('new-scenario-source-summary')).toContainText(
+    'order of battle starts empty',
+  );
   await dialog.getByLabel('Scenario name').fill('Gate Scenario');
   await dialog.getByLabel('Description').fill('Deployment gate for M5.');
   await dialog.getByRole('button', { name: 'Create scenario' }).click();
 
   await expect(dialog).not.toBeVisible();
   await expect(page.getByTestId('scenario-name')).toHaveText('Gate Scenario');
-  await expect(page.getByTestId('scenario-oob')).toContainText('0 of 21 formations deployed');
+  await expect(page.getByTestId('scenario-oob')).toContainText('0 formations');
+  await expect(page.getByTestId('scenario-oob')).toContainText('0 factions');
 }
 
-test('deploys 20 brigades, edits formations, filters factions, and isolates source snapshots', async ({
+test('deploys 20 generated brigades, edits formations, filters factions, and isolates source snapshots', async ({
   page,
 }) => {
   await page.goto('/');
-  await importGateRoster(page);
   await createGateScenario(page);
+
+  await generateIndependentArmy(page, {
+    factionName: 'Alpha League',
+    brigades: 11,
+  });
+  await generateIndependentArmy(page, {
+    factionName: 'Beta Crown',
+    brigades: 10,
+  });
+
+  await expect(page.getByTestId('scenario-oob')).toContainText('21 formations');
+  await expect(page.getByTestId('scenario-oob')).toContainText('2 factions');
 
   const canvas = page.getByTestId('scenario-canvas');
   await expect(canvas).toBeVisible();
@@ -126,23 +77,30 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Scenario canvas has no bounding box');
 
-  const names = [...alphaNames, ...betaNames];
+  const alphaSection = factionSection(page, 'Alpha League');
+  const betaSection = factionSection(page, 'Beta Crown');
   const gridPoint = (index: number) => ({
     x: box.x + 110 + (index % 5) * 72,
     y: box.y + 90 + Math.floor(index / 5) * 72,
   });
   let lastPoint = gridPoint(0);
+  let deployed = 0;
 
-  for (let index = 0; index < 20; index += 1) {
-    const name = names[index];
-    if (!name) throw new Error(`Missing formation name at index ${index}`);
-    await page.getByRole('button', { name: `Deploy ${name}`, exact: true }).click();
+  const deployNext = async (section: typeof alphaSection): Promise<void> => {
+    await section
+      .getByRole('button', { name: /^Deploy / })
+      .first()
+      .click();
     await expect(canvas).toHaveAttribute('data-placement', 'true');
 
-    lastPoint = gridPoint(index);
+    lastPoint = gridPoint(deployed);
     await page.mouse.click(lastPoint.x, lastPoint.y);
-    await expect(canvas).toHaveAttribute('data-deployed-count', String(index + 1));
-  }
+    deployed += 1;
+    await expect(canvas).toHaveAttribute('data-deployed-count', String(deployed));
+  };
+
+  for (let index = 0; index < 11; index += 1) await deployNext(alphaSection);
+  for (let index = 0; index < 9; index += 1) await deployNext(betaSection);
 
   await expect(canvas).toHaveAttribute('data-placement', 'false');
   await expect(canvas).toHaveAttribute('data-visible-formations', '20');
@@ -150,11 +108,13 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   await expect(canvas).toHaveAttribute('data-text-formations', '0');
   await expect(canvas).toHaveAttribute('data-terrain-features', '9');
   await expect(page.getByTestId('scenario-summary')).toContainText('20 deployed');
-  await expect(page.getByTestId('scenario-oob')).toContainText('20 of 21 formations deployed');
+  await expect(page.getByTestId('scenario-oob')).toContainText(
+    '21 formations · 2 factions · 20 deployed',
+  );
 
   // The last placed formation stays selected. Rotate it with the transformer
   // handle before dragging from its center.
-  await expect(page.getByTestId('selected-unit-name')).toHaveText('Beta Brigade 09');
+  await expect(page.getByTestId('selected-unit-name')).toHaveText('8th Brigade');
   await expect(canvas).toHaveAttribute('data-selected-kind', 'rectangle');
   const formationsScale = Math.min((box.width - 96) / 2000, (box.height - 96) / 1400);
   const rotateHandle = {
@@ -201,7 +161,7 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   await expect(page.getByTestId('selected-unit-label')).toHaveText('Gate Vanguard');
 
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.getByTestId('selected-unit-label')).toHaveText('Beta Brigade 09');
+  await expect(page.getByTestId('selected-unit-label')).toHaveText('8th Brigade');
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect(page.getByTestId('selected-unit-label')).toHaveText('Gate Vanguard');
 
@@ -216,8 +176,8 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   await expect(page.getByTestId('remove-unit-from-map')).toBeVisible();
 
   // The order of battle swaps Deploy for a direct Remove action.
-  const oobRemove = page.getByRole('button', {
-    name: 'Remove Alpha Brigade 01 from map',
+  const oobRemove = alphaSection.getByRole('button', {
+    name: 'Remove 1st Brigade from map',
     exact: true,
   });
   await expect(oobRemove).toBeVisible();
@@ -225,12 +185,12 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   await expect(canvas).toHaveAttribute('data-deployed-count', '19');
   await expect(canvas).toHaveAttribute('data-visible-formations', '19');
   await expect(
-    page.getByRole('button', { name: 'Deploy Alpha Brigade 01', exact: true }),
+    alphaSection.getByRole('button', { name: 'Deploy 1st Brigade', exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(canvas).toHaveAttribute('data-deployed-count', '20');
   await expect(
-    page.getByRole('button', { name: 'Remove Alpha Brigade 01 from map', exact: true }),
+    alphaSection.getByRole('button', { name: 'Remove 1st Brigade from map', exact: true }),
   ).toBeVisible();
 
   // Faction visibility only filters the view; the deployment stays intact.
@@ -263,7 +223,7 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   );
   await expect(page.getByTestId('selected-terrain-kind')).toHaveText('Forest');
 
-  await page.getByRole('button', { name: 'Units mode', exact: true }).click();
+  await page.getByRole('button', { name: 'Order of battle mode', exact: true }).click();
   await expect(canvas).toHaveAttribute('data-mode', 'units');
   await expect(page.getByTestId('scenario-oob')).toBeVisible();
   await expect(canvas).toHaveAttribute('data-deployed-count', '20');
@@ -290,7 +250,9 @@ test('deploys 20 brigades, edits formations, filters factions, and isolates sour
   await expect(page.getByTestId('scenario-name')).toHaveText('Gate Scenario');
   await expect(page.getByTestId('scenario-canvas')).toHaveAttribute('data-terrain-features', '9');
   await expect(page.getByTestId('scenario-canvas')).toHaveAttribute('data-deployed-count', '20');
-  await expect(page.getByTestId('scenario-oob')).toContainText('20 of 21 formations deployed');
+  await expect(page.getByTestId('scenario-oob')).toContainText(
+    '21 formations · 2 factions · 20 deployed',
+  );
 });
 
 test('renders higher echelons as text and applies display settings', async ({ page }) => {
@@ -350,8 +312,6 @@ test('renders higher echelons as text and applies display settings', async ({ pa
     corps: 'full',
     division: 'full',
     brigade: 'shortened',
-    regiment: 'shortened',
-    other: 'shortened',
   });
 
   // Voss Division is selected; its map label follows the division name style
@@ -762,7 +722,10 @@ test('selects and drags a rectangle formation by its map label even when names a
 
   // Seed brigade 1 sits at world 700, 520 with its label above the rectangle.
   // Clicking the label (not the rectangle) selects the formation.
-  const labelAboveUnits = 8 + (28 * 1.3) / 2 + 7 / 2;
+  const brigadeFontSize = JSON.parse(
+    (await canvas.getAttribute('data-formation-font-sizes')) ?? '{}',
+  ).brigade as number;
+  const labelAboveUnits = 8 + (brigadeFontSize * 1.3) / 2 + 7 / 2;
   const labelPoint = screenPoint(700, 520 - labelAboveUnits);
   await page.mouse.click(labelPoint.x, labelPoint.y);
   await expect(canvas).toHaveAttribute('data-selected-kind', 'rectangle');

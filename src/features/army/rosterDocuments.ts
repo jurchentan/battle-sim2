@@ -11,29 +11,16 @@ import {
   type UnitType,
 } from '../../models';
 
-export const ECHELON_ORDER: readonly UnitEchelon[] = [
-  'army',
-  'corps',
-  'division',
-  'brigade',
-  'regiment',
-  'other',
-];
+export const ECHELON_ORDER: readonly UnitEchelon[] = ['army', 'corps', 'division', 'brigade'];
 
 export const ECHELON_LABELS: Record<UnitEchelon, string> = {
   army: 'Army',
   corps: 'Corps',
   division: 'Division',
   brigade: 'Brigade',
-  regiment: 'Regiment',
-  other: 'Other',
 };
 
-/** Labels used inside generated unit names; "other" reads better as Formation. */
-const DYNAMIC_ECHELON_LABELS: Record<UnitEchelon, string> = {
-  ...ECHELON_LABELS,
-  other: 'Formation',
-};
+const DYNAMIC_ECHELON_LABELS: Record<UnitEchelon, string> = { ...ECHELON_LABELS };
 
 export function echelonRank(echelon: UnitEchelon): number {
   return ECHELON_ORDER.indexOf(echelon);
@@ -41,8 +28,8 @@ export function echelonRank(echelon: UnitEchelon): number {
 
 /**
  * A subordinate must sit strictly below its parent: corps under army, division
- * under corps, and so on. `other` is the deepest echelon, so it can be a leaf
- * under any regular formation but can never be a parent.
+ * under corps, and brigades under divisions. Brigades are always the smallest
+ * supported formation.
  */
 export function canEchelonBeSubordinateOf(
   childEchelon: UnitEchelon,
@@ -110,40 +97,19 @@ export function nextEchelonFor(parentEchelon: UnitEchelon | null): UnitEchelon {
 }
 
 /**
- * Infers the deepest regular echelon present in a roster. Used to upgrade
- * rosters saved before the smallest-unit setting existed without dropping
- * regiment or other custom leaves.
+ * Migrates a legacy roster document to the current four-echelon shape. The
+ * schema preprocessor normalizes retired echelons and forces brigades as the
+ * smallest unit; the fallback keeps malformed documents editable.
  */
-export function inferSmallestUnitEchelon(units: readonly UnitDefinition[]): UnitEchelon {
-  let smallest: UnitEchelon = 'brigade';
-
-  for (const unit of units) {
-    if (unit.echelon === 'other') continue;
-    if (echelonRank(unit.echelon) > echelonRank(smallest)) {
-      smallest = unit.echelon;
-    }
-  }
-
-  return smallest;
-}
-
 export function normalizeRosterDocument(document: ArmyRoster): ArmyRoster {
-  const withSmallestUnit = document.smallestUnitEchelon
-    ? document
-    : {
-        ...document,
-        smallestUnitEchelon: inferSmallestUnitEchelon(document.units),
-      };
-
-  const parsed = armyRosterSchema.safeParse(withSmallestUnit);
-  return parsed.success ? parsed.data : withSmallestUnit;
+  const parsed = armyRosterSchema.safeParse(document);
+  return parsed.success ? parsed.data : { ...document, smallestUnitEchelon: 'brigade' };
 }
 
 export function canEchelonHaveSubordinates(
   echelon: UnitEchelon,
   smallestUnitEchelon: UnitEchelon,
 ): boolean {
-  if (echelon === 'other') return false;
   return echelonRank(echelon) < echelonRank(smallestUnitEchelon);
 }
 
@@ -191,43 +157,6 @@ export function effectiveUnitStrength(
 
   seen.delete(unitId);
   return hasStrength ? total : null;
-}
-
-export function smallestUnitChangeError(
-  roster: ArmyRoster,
-  smallestUnitEchelon: UnitEchelon,
-): string | null {
-  const nextRank = echelonRank(smallestUnitEchelon);
-  const parentIds = new Set(
-    roster.units
-      .map((unit) => unit.parentUnitId)
-      .filter((unitId): unitId is string => unitId !== null),
-  );
-
-  const deeper = roster.units.filter(
-    (unit) => unit.echelon !== 'other' && echelonRank(unit.echelon) > nextRank,
-  );
-  if (deeper.length > 0) {
-    const names = deeper
-      .slice(0, 3)
-      .map((unit) => unitDisplayName(roster, unit))
-      .join(', ');
-    return `Change or remove ${deeper.length === 1 ? 'the unit' : 'the units'} below ${
-      ECHELON_LABELS[smallestUnitEchelon]
-    } before making it the smallest unit (${names}${deeper.length > 3 ? ', …' : ''}).`;
-  }
-
-  const blockingParent = roster.units.find(
-    (unit) =>
-      unit.echelon !== 'other' && echelonRank(unit.echelon) >= nextRank && parentIds.has(unit.id),
-  );
-  if (blockingParent) {
-    return `${unitDisplayName(roster, blockingParent)} still has subordinates. Move or delete them before making ${
-      ECHELON_LABELS[smallestUnitEchelon]
-    } the smallest unit.`;
-  }
-
-  return null;
 }
 
 export function createBlankRoster(name = 'Untitled roster'): ArmyRoster {

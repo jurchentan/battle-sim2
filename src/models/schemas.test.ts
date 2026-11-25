@@ -64,7 +64,7 @@ describe('seed documents', () => {
     expect(first).toEqual(second);
     expect(first.terrain).not.toBe(second.terrain);
     expect(first.scenario.terrainSnapshot).not.toBe(first.terrain);
-    expect(first.scenario.rosterSnapshot).not.toBe(first.roster);
+    expect(first.scenario.orderOfBattle).not.toBe(first.roster);
   });
 
   it('keeps scenario snapshots independent from source documents', () => {
@@ -73,7 +73,7 @@ describe('seed documents', () => {
     documents.roster.units[0].customName = 'Changed roster';
 
     expect(documents.scenario.terrainSnapshot.features[0].name).toBe('North Wood');
-    expect(documents.scenario.rosterSnapshot.units[0].customName).toBe('Army of the North');
+    expect(documents.scenario.orderOfBattle.units[0].customName).toBe('Army of the North');
   });
 
   it('keeps seeded phase state deeply isolated', () => {
@@ -282,8 +282,6 @@ describe('army roster validation', () => {
       corps: 'commander',
       division: 'commander',
       brigade: 'commander',
-      regiment: 'commander',
-      other: 'commander',
     });
   });
 
@@ -391,5 +389,34 @@ describe('battle scenario validation', () => {
     scenario.phases = [];
 
     expectFailure(battleScenarioSchema.safeParse(scenario), 'at least one phase');
+  });
+
+  it('migrates a legacy scenario roster snapshot into the scenario order of battle', () => {
+    const scenario = JSON.parse(JSON.stringify(createSeedBattleScenario())) as Record<
+      string,
+      unknown
+    >;
+    const legacyRoster = scenario.orderOfBattle as Record<string, unknown>;
+    delete legacyRoster.smallestUnitEchelon;
+    const units = legacyRoster.units as Record<string, unknown>[];
+    const brigade = units.find((unit) => unit.id === 'unit-north-brigade-1');
+    if (!brigade) throw new Error('Missing seeded brigade');
+    brigade.echelon = 'regiment';
+
+    scenario.rosterSnapshot = legacyRoster;
+    delete scenario.orderOfBattle;
+
+    const result = battleScenarioSchema.safeParse(scenario);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    expect('rosterSnapshot' in result.data).toBe(false);
+    expect(result.data.orderOfBattle.smallestUnitEchelon).toBe('brigade');
+    expect(
+      result.data.orderOfBattle.units.find((unit) => unit.id === 'unit-north-brigade-1')?.echelon,
+    ).toBe('brigade');
+    expect(result.data.orderOfBattle.units).toHaveLength(
+      createSeedBattleScenario().orderOfBattle.units.length,
+    );
   });
 });

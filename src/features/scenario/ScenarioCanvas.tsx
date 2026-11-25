@@ -347,7 +347,7 @@ export function ScenarioCanvas() {
   const phase = activeScenarioPhase(scenario);
   const deployedCount = phase ? Object.keys(phase.unitStates).length : 0;
   const hiddenFactions = new Set(hiddenFactionIds);
-  const unitsById = new Map(scenario.rosterSnapshot.units.map((unit) => [unit.id, unit] as const));
+  const unitsById = new Map(scenario.orderOfBattle.units.map((unit) => [unit.id, unit] as const));
   const visibleFormations = phase
     ? Object.entries(phase.unitStates).flatMap(([unitId, state]) => {
         if (!state.visible) return [];
@@ -358,14 +358,14 @@ export function ScenarioCanvas() {
     : [];
   const visibleFormationCount = visibleFormations.length;
   const rectangleFormationCount = visibleFormations.filter(({ unit }) =>
-    isRectangleFormation(unit.echelon, scenario.rosterSnapshot.smallestUnitEchelon),
+    isRectangleFormation(unit.echelon, scenario.orderOfBattle.smallestUnitEchelon),
   ).length;
   const textFormationCount = visibleFormationCount - rectangleFormationCount;
   const selectedUnitId = selectedUnitIds.length === 1 ? (selectedUnitIds[0] ?? null) : null;
   const selectedUnit = selectedUnitId ? unitsById.get(selectedUnitId) : undefined;
   const selectedState = selectedUnitId ? phase?.unitStates[selectedUnitId] : undefined;
   const selectedIsRectangle = selectedUnit
-    ? isRectangleFormation(selectedUnit.echelon, scenario.rosterSnapshot.smallestUnitEchelon)
+    ? isRectangleFormation(selectedUnit.echelon, scenario.orderOfBattle.smallestUnitEchelon)
     : false;
   const selectedMapLabel =
     selectedUnit && selectedState

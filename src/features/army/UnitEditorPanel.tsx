@@ -863,9 +863,9 @@ export function UnitEditorPanel({
         </h3>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6b6353]">
           Select a unit in the order of battle to edit its commander, custom name, strength, type,
-          notes, and symbol style. The roster setting controls the smallest echelon; formations
-          above it roll up the strength of their subordinates. Use the + button beside a formation
-          to add a subordinate directly.
+          notes, and symbol style. Brigades carry their own strength; formations above them roll up
+          the strength of their subordinates. Use the + button beside a formation to add a
+          subordinate directly.
         </p>
       </header>
 

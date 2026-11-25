@@ -63,8 +63,8 @@ export function NewArmyRosterDialog({ onClose }: { onClose: () => void }) {
             Start an order of battle
           </h2>
           <p className="mt-1 text-xs text-[#7c715c]">
-            A new roster starts empty. Add factions first, then build the chain of command from army
-            to corps, division, and brigade.
+            A new roster starts empty. Use rosters as optional reusable templates for factions,
+            naming rules, and formations; scenarios own their own orders of battle.
           </p>
         </header>
 
@@ -86,8 +86,8 @@ export function NewArmyRosterDialog({ onClose }: { onClose: () => void }) {
                 Default hierarchy
               </h3>
               <p className="mt-1 text-[0.68rem] leading-4 text-[#7c715c]">
-                Army → Corps → Division → Brigade. Regiment and other custom echelons remain
-                available, and every unit can be reparented later.
+                Army → Corps → Division → Brigade. Brigades are always the smallest formation, and
+                every unit can be reparented later.
               </p>
             </section>
 

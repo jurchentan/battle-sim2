@@ -66,7 +66,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain,
-        roster,
+        orderOfBattle: roster,
       }),
     );
 
@@ -74,7 +74,7 @@ describe('scenario store', () => {
     expect(document.id).toBe(result.id);
     expect(document.name).toBe('Gate Scenario');
     expect(document.terrainSnapshot).toEqual(terrain);
-    expect(document.rosterSnapshot.units).toHaveLength(21);
+    expect(document.orderOfBattle.units).toHaveLength(21);
     expect(document.phases).toHaveLength(1);
     expect(useScenarioStore.getState().past).toHaveLength(0);
     expect(useScenarioStore.getState().future).toHaveLength(0);
@@ -87,7 +87,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain,
-        roster,
+        orderOfBattle: roster,
       }),
     );
 
@@ -109,7 +109,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain,
-        roster,
+        orderOfBattle: roster,
       }),
     );
     deployGateBrigades(20);
@@ -120,7 +120,7 @@ describe('scenario store', () => {
 
     const document = useScenarioStore.getState().document;
     expect(document.terrainSnapshot.features).toHaveLength(9);
-    expect(document.rosterSnapshot.units).toHaveLength(21);
+    expect(document.orderOfBattle.units).toHaveLength(21);
     expect(Object.keys(activeState()?.unitStates ?? {})).toHaveLength(20);
   });
 
@@ -164,7 +164,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     );
     deployGateBrigades(1);
@@ -196,7 +196,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     );
     deployGateBrigades(1);
@@ -228,7 +228,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     );
     deployGateBrigades(3);
@@ -266,7 +266,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     );
     deployGateBrigades(2);
@@ -288,7 +288,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     );
     deployGateBrigades(4);
@@ -312,7 +312,7 @@ describe('scenario store', () => {
       useScenarioStore.getState().createScenario({
         name: 'Gate Scenario',
         terrain: createSeedTerrainMap(),
-        roster: gateRoster(),
+        orderOfBattle: gateRoster(),
       }),
     );
     deployGateBrigades(20);
@@ -363,5 +363,245 @@ describe('scenario store', () => {
     expect(useScenarioStore.getState().document.terrainSnapshot.name).toBe('Ashford Ford');
     expect(useScenarioStore.getState().past).toHaveLength(0);
     expect(useScenarioStore.getState().future).toHaveLength(0);
+  });
+
+  it('creates a map-only scenario with an empty scenario-owned order of battle', () => {
+    const result = unwrap(
+      useScenarioStore.getState().createScenario({
+        name: '  Gate Scenario  ',
+        terrain: createSeedTerrainMap(),
+      }),
+    );
+
+    const document = useScenarioStore.getState().document;
+    expect(document.id).toBe(result.id);
+    expect(document.name).toBe('Gate Scenario');
+    expect(document.orderOfBattle.name).toBe('Gate Scenario order of battle');
+    expect(document.orderOfBattle.smallestUnitEchelon).toBe('brigade');
+    expect(document.orderOfBattle.factions).toEqual([]);
+    expect(document.orderOfBattle.units).toEqual([]);
+    expect(document.phases).toHaveLength(1);
+    expect(document.phases[0]?.unitStates).toEqual({});
+    expect(useScenarioStore.getState().past).toHaveLength(0);
+  });
+
+  it('adds, edits, reparents, and deletes scenario formations as undoable edits', () => {
+    unwrap(
+      useScenarioStore.getState().createScenario({
+        name: 'Gate Scenario',
+        terrain: createSeedTerrainMap(),
+      }),
+    );
+
+    const faction = unwrap(
+      useScenarioStore.getState().addFaction({ name: 'Northern League', color: '#2f5d8a' }),
+    );
+    const army = unwrap(
+      useScenarioStore.getState().addUnit({
+        factionId: faction.id,
+        customName: 'Army of the Gate',
+        echelon: 'army',
+        unitType: 'other',
+        parentUnitId: null,
+      }),
+    );
+    const firstDivision = unwrap(
+      useScenarioStore.getState().addUnit({
+        factionId: faction.id,
+        echelon: 'division',
+        unitType: 'infantry',
+        parentUnitId: army.id,
+      }),
+    );
+    const secondDivision = unwrap(
+      useScenarioStore.getState().addUnit({
+        factionId: faction.id,
+        echelon: 'division',
+        unitType: 'infantry',
+        parentUnitId: army.id,
+      }),
+    );
+    const brigade = unwrap(
+      useScenarioStore.getState().addUnit({
+        factionId: faction.id,
+        echelon: 'brigade',
+        unitType: 'infantry',
+        parentUnitId: firstDivision.id,
+      }),
+    );
+
+    const document = useScenarioStore.getState().document;
+    const addedBrigade = document.orderOfBattle.units.find((unit) => unit.id === brigade.id);
+    expect(addedBrigade?.parentUnitId).toBe(firstDivision.id);
+    expect(addedBrigade?.initialStrength).toBe(1500);
+    expect(useScenarioStore.getState().past).toHaveLength(5);
+
+    unwrap(
+      useScenarioStore.getState().updateUnit(brigade.id, {
+        customName: '  Gate Brigade  ',
+        commander: '  Captain Hale  ',
+        initialStrength: 1750,
+      }),
+    );
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.find((unit) => unit.id === brigade.id),
+    ).toMatchObject({
+      customName: 'Gate Brigade',
+      commander: 'Captain Hale',
+      initialStrength: 1750,
+    });
+
+    unwrap(useScenarioStore.getState().reparentUnit(brigade.id, secondDivision.id));
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.find((unit) => unit.id === brigade.id)?.parentUnitId,
+    ).toBe(secondDivision.id);
+    expect(useScenarioStore.getState().past).toHaveLength(7);
+
+    useScenarioStore.getState().undo();
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.find((unit) => unit.id === brigade.id)?.parentUnitId,
+    ).toBe(firstDivision.id);
+    useScenarioStore.getState().redo();
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.find((unit) => unit.id === brigade.id)?.parentUnitId,
+    ).toBe(secondDivision.id);
+
+    const beforeInvalidReparent = useScenarioStore.getState().document;
+    const invalid = useScenarioStore.getState().reparentUnit(firstDivision.id, brigade.id);
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.error).toContain('cannot be placed under');
+    expect(useScenarioStore.getState().document).toBe(beforeInvalidReparent);
+
+    const blockedFactionDelete = useScenarioStore.getState().deleteFaction(faction.id);
+    expect(blockedFactionDelete.ok).toBe(false);
+    if (!blockedFactionDelete.ok) expect(blockedFactionDelete.error).toContain('units');
+
+    const blockedArmyDelete = useScenarioStore.getState().deleteUnit(army.id);
+    expect(blockedArmyDelete.ok).toBe(false);
+    if (!blockedArmyDelete.ok) expect(blockedArmyDelete.error).toContain('subordinate');
+
+    unwrap(useScenarioStore.getState().deleteUnit(brigade.id));
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.some((unit) => unit.id === brigade.id),
+    ).toBe(false);
+    expect(useScenarioStore.getState().past).toHaveLength(8);
+
+    useScenarioStore.getState().undo();
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.some((unit) => unit.id === brigade.id),
+    ).toBe(true);
+  });
+
+  it('cascades formation deletion through every phase and annotation link', () => {
+    const before = useScenarioStore.getState().document;
+    expect(before.phases).toHaveLength(2);
+    expect(before.phases[0]?.unitStates['unit-north-brigade-2']).toBeDefined();
+    expect(before.phases[1]?.unitStates['unit-north-brigade-2']).toBeDefined();
+    expect(
+      before.phases[1]?.annotations.find(
+        (annotation) => annotation.id === 'annotation-north-counter',
+      )?.linkedUnitId,
+    ).toBe('unit-north-brigade-2');
+
+    unwrap(useScenarioStore.getState().deleteUnit('unit-north-brigade-2'));
+
+    const document = useScenarioStore.getState().document;
+    expect(document.phases[0]?.unitStates['unit-north-brigade-2']).toBeUndefined();
+    expect(document.phases[1]?.unitStates['unit-north-brigade-2']).toBeUndefined();
+    expect(
+      document.phases[1]?.annotations.find(
+        (annotation) => annotation.id === 'annotation-north-counter',
+      )?.linkedUnitId,
+    ).toBeUndefined();
+    expect(document.phases[0]?.annotations).toHaveLength(2);
+    expect(useScenarioStore.getState().past).toHaveLength(1);
+
+    useScenarioStore.getState().undo();
+    const restored = useScenarioStore.getState().document;
+    expect(restored.phases[0]?.unitStates['unit-north-brigade-2']).toBeDefined();
+    expect(restored.phases[1]?.unitStates['unit-north-brigade-2']).toBeDefined();
+    expect(
+      restored.phases[1]?.annotations.find(
+        (annotation) => annotation.id === 'annotation-north-counter',
+      )?.linkedUnitId,
+    ).toBe('unit-north-brigade-2');
+
+    useScenarioStore.getState().redo();
+    expect(
+      useScenarioStore.getState().document.phases[0]?.unitStates['unit-north-brigade-2'],
+    ).toBeUndefined();
+
+    const blocked = useScenarioStore.getState().deleteUnit('unit-north-division');
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.error).toContain('subordinate');
+  });
+
+  it('commits a generated army as a single history entry', () => {
+    unwrap(
+      useScenarioStore.getState().createScenario({
+        name: 'Generated Scenario',
+        terrain: createSeedTerrainMap(),
+      }),
+    );
+
+    const result = useScenarioStore.getState().generateArmy({
+      faction: { kind: 'new', name: 'Army of the Gate', color: '#2f5d8a' },
+      structure: 'divisions',
+      brigadesPerDivision: 3,
+      arms: [
+        { unitType: 'infantry', brigadeCount: 7, strengthMode: 'average', strengthValue: 2400 },
+        { unitType: 'cavalry', brigadeCount: 2, strengthMode: 'total', strengthValue: 1000 },
+        { unitType: 'artillery', brigadeCount: 0, strengthMode: 'average', strengthValue: 0 },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+
+    const document = useScenarioStore.getState().document;
+    expect(document.orderOfBattle.factions).toHaveLength(1);
+    expect(document.orderOfBattle.factions[0]?.name).toBe('Army of the Gate');
+    expect(document.orderOfBattle.units).toHaveLength(13);
+    expect(document.orderOfBattle.units.filter((unit) => unit.echelon === 'division')).toHaveLength(
+      4,
+    );
+    expect(document.orderOfBattle.units.filter((unit) => unit.echelon === 'brigade')).toHaveLength(
+      9,
+    );
+    expect(result.factionId).toBe(document.orderOfBattle.factions[0]?.id);
+    expect(result.unitIds).toHaveLength(13);
+    expect(result.rootUnitIds).toHaveLength(4);
+    expect(useScenarioStore.getState().past).toHaveLength(1);
+
+    const beforeInvalid = useScenarioStore.getState().document;
+    const invalid = useScenarioStore.getState().generateArmy({
+      faction: { kind: 'new', name: 'Broken', color: '#123456' },
+      structure: 'divisions',
+      brigadesPerDivision: 0,
+      arms: [
+        { unitType: 'infantry', brigadeCount: 1, strengthMode: 'average', strengthValue: 900 },
+      ],
+    });
+    expect(invalid.ok).toBe(false);
+    expect(useScenarioStore.getState().document).toBe(beforeInvalid);
+    expect(useScenarioStore.getState().past).toHaveLength(1);
+
+    useScenarioStore.getState().undo();
+    expect(useScenarioStore.getState().document.orderOfBattle.factions).toEqual([]);
+    expect(useScenarioStore.getState().document.orderOfBattle.units).toEqual([]);
+
+    useScenarioStore.getState().redo();
+    expect(useScenarioStore.getState().document.orderOfBattle.units).toHaveLength(13);
   });
 });

@@ -3,7 +3,7 @@ import { useRosterLibraryStore } from '../../state/rosterLibraryStore';
 import { useRosterStore } from '../../state/rosterStore';
 import { OrderOfBattlePanel } from '../../features/army/OrderOfBattlePanel';
 import { RosterToolbar } from '../../features/army/RosterToolbar';
-import { FactionManagerPanel, RosterSettingsPanel } from '../../features/army/RosterSidebars';
+import { FactionManagerPanel } from '../../features/army/RosterSidebars';
 import { UnitEditorPanel } from '../../features/army/UnitEditorPanel';
 import { sectionHeadingClass } from '../../features/army/ui';
 
@@ -83,7 +83,6 @@ export function ArmyWorkspace() {
           aria-label="Roster records"
           className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto border-l border-[#d8cdb5] bg-[#fbf7ed] p-3"
         >
-          <RosterSettingsPanel />
           <FactionManagerPanel />
 
           <section

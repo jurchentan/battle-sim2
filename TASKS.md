@@ -72,12 +72,12 @@ equivalent semantic data.
 
 - [x] Faction management with configurable colors, per-echelon naming, and default strengths
 - [x] Unit creation, editing, and safe reparenting
-- [x] Default army/corps/division/brigade hierarchy plus custom echelons
+- [x] Fixed army/corps/division/brigade hierarchy (four echelons since M5.5)
 - [x] Per-faction, per-echelon default strengths, type, notes, symbol style
 - [x] Generated universal/local numbered or commander-style unit names with custom-name override
 - [x] Free-text commander per unit
 - [x] Roster library and import/export
-- [x] Configurable smallest echelon with derived formation strength roll-up
+- [x] Fixed brigade smallest echelon with derived formation strength roll-up
 - [x] Inline add-subordinate control on every non-leaf formation
 
 Gate: create two armies with corps/division/three brigades; reject cycles; persist
@@ -85,7 +85,7 @@ and reopen.
 
 ## M5 — Scenario editor and deployment (complete)
 
-- [x] Create scenario from snapshots of saved terrain and roster
+- [x] Create scenario from snapshots of saved terrain and roster (superseded by M5.5)
 - [x] Place formations; smallest-echelon units render as rectangles, higher echelons as text labels
 - [x] Deploy parent formations with undeployed subordinates arranged in echelon rows in front
 - [x] Configurable per-echelon label sizes, name styles (full, shortened, commander surname, none), and uppercase labels
@@ -103,6 +103,23 @@ and reopen.
 
 Gate: deploy at least 20 brigades without changing terrain; edits to library
 sources do not mutate the scenario.
+
+## M5.5 — Scenario-owned orders of battle (complete)
+
+- [x] Replace the scenario `rosterSnapshot` with a scenario-owned `orderOfBattle`; migrate legacy documents
+- [x] Create scenarios from a saved terrain map only, with an empty order of battle
+- [x] Editable order-of-battle menu with faction, unit, subordinate, deploy/remove, and delete actions
+- [x] Scenario add/edit faction and unit dialogs plus inspector identity editing and safe reparenting
+- [x] Unit deletion cascades through all phase states and annotation links in one undo entry
+- [x] Supported echelons reduced to army/corps/division/brigade; brigade is always the smallest unit
+- [x] Legacy `regiment`/`other` echelons and smallest-echelon settings auto-migrate safely
+- [x] Semi-procedural army generator with per-arm brigade counts, average/exact strengths, homogeneous formations, and one-entry commit
+- [x] Army Roster workspace retained as an optional template library; unsupported controls removed and migration notice added
+- [x] Generator, store, schema, and Playwright coverage for the new flow
+
+Gate: create a map-only scenario, build and generate its OOB in the builder,
+deploy at least 20 generated brigades, and verify legacy documents migrate; all
+checks pass.
 
 ## M6 — Battle phases
 

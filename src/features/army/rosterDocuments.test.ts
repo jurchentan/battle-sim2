@@ -17,7 +17,6 @@ import {
   normalizeRosterDocument,
   ordinalLabel,
   reparentError,
-  smallestUnitChangeError,
   unitChildren,
   unitDepth,
   unitDisplayName,
@@ -39,8 +38,7 @@ describe('army roster document helpers', () => {
     expect(nextEchelonFor('army')).toBe('corps');
     expect(nextEchelonFor('corps')).toBe('division');
     expect(nextEchelonFor('division')).toBe('brigade');
-    expect(nextEchelonFor('brigade')).toBe('regiment');
-    expect(nextEchelonFor('other')).toBe('brigade');
+    expect(nextEchelonFor('brigade')).toBe('brigade');
   });
 
   it('duplicates a roster with a new identity and independent collections', () => {
@@ -110,7 +108,8 @@ describe('army roster document helpers', () => {
     expect(canEchelonBeSubordinateOf('corps', 'army')).toBe(true);
     expect(canEchelonBeSubordinateOf('army', 'corps')).toBe(false);
     expect(canEchelonBeSubordinateOf('division', 'division')).toBe(false);
-    expect(canEchelonBeSubordinateOf('other', 'regiment')).toBe(true);
+    expect(canEchelonBeSubordinateOf('brigade', 'division')).toBe(true);
+    expect(canEchelonBeSubordinateOf('brigade', 'brigade')).toBe(false);
 
     expect(eligibleParentUnits(roster, 'unit-north-division').map((unit) => unit.id)).toEqual([
       'unit-north-army',
@@ -160,43 +159,38 @@ describe('army roster document helpers', () => {
     expect(isStrengthAggregated(roster, brigade)).toBe(false);
   });
 
-  it('moves the leaf echelon when the smallest unit setting changes', () => {
+  it('always treats brigades as the leaf echelon', () => {
     const roster = createSeedRoster();
     const division = findUnit(roster, 'unit-north-division');
     const brigade = findUnit(roster, 'unit-north-brigade-1');
     if (!division || !brigade) throw new Error('Missing seeded units');
 
+    expect(roster.smallestUnitEchelon).toBe('brigade');
     expect(canHaveSubordinates(roster, division)).toBe(true);
     expect(canHaveSubordinates(roster, brigade)).toBe(false);
-
-    const regimentRoster = { ...roster, smallestUnitEchelon: 'regiment' as const };
-    expect(canHaveSubordinates(regimentRoster, brigade)).toBe(true);
-    expect(effectiveUnitStrength(regimentRoster, division.id)).toBe(5000);
-
-    expect(smallestUnitChangeError(roster, 'regiment')).toBeNull();
-    expect(smallestUnitChangeError(roster, 'corps')).toContain('below Corps');
+    expect(effectiveUnitStrength(roster, division.id)).toBe(5000);
   });
 
-  it('infers the smallest unit when opening rosters saved before the setting existed', () => {
-    const legacy = structuredClone(createSeedRoster()) as Partial<
-      ReturnType<typeof createSeedRoster>
-    >;
+  it('migrates legacy regiment echelons to brigade and repairs the hierarchy', () => {
+    const legacy = structuredClone(createSeedRoster()) as unknown as Record<string, unknown>;
     delete legacy.smallestUnitEchelon;
-
-    expect(normalizeRosterDocument(legacy as ReturnType<typeof createSeedRoster>)).toMatchObject({
-      smallestUnitEchelon: 'brigade',
-    });
-
-    legacy.units?.push({
-      ...legacy.units[3]!,
+    const units = legacy.units as Record<string, unknown>[];
+    units.push({
+      ...units[3]!,
       id: 'unit-legacy-regiment',
       customName: 'Legacy Regiment',
       echelon: 'regiment',
       parentUnitId: 'unit-north-brigade-1',
     });
-    expect(normalizeRosterDocument(legacy as ReturnType<typeof createSeedRoster>)).toMatchObject({
-      smallestUnitEchelon: 'regiment',
-    });
+
+    const normalized = normalizeRosterDocument(
+      legacy as unknown as ReturnType<typeof createSeedRoster>,
+    );
+    const migrated = normalized.units.find((unit) => unit.id === 'unit-legacy-regiment');
+
+    expect(normalized.smallestUnitEchelon).toBe('brigade');
+    expect(migrated?.echelon).toBe('brigade');
+    expect(migrated?.parentUnitId).toBe('unit-north-division');
   });
 
   it('accepts rosters without the smallest-unit field and defaults to brigade', () => {
@@ -215,8 +209,7 @@ describe('army roster document helpers', () => {
 
     expect(defaultUnitStrength(north, 'infantry', 'brigade', 'brigade')).toBe(1500);
     expect(defaultUnitStrength(north, 'cavalry', 'brigade', 'brigade')).toBe(800);
-    expect(defaultUnitStrength(north, 'artillery', 'regiment', 'brigade')).toBe(100);
-    expect(defaultUnitStrength(north, 'infantry', 'regiment', 'regiment')).toBe(500);
+    expect(defaultUnitStrength(north, 'artillery', 'brigade', 'brigade')).toBe(300);
     expect(defaultUnitStrength(north, 'infantry', 'division', 'brigade')).toBeNull();
     expect(defaultUnitStrength(north, 'artillery', 'corps', 'division')).toBeNull();
     expect(defaultUnitStrength(north, 'other', 'brigade', 'brigade')).toBeNull();

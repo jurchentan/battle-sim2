@@ -91,40 +91,33 @@ test('adds subordinates from the order of battle and rolls up formation strength
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add subordinate to 1st Brigade' })).toHaveCount(0);
 
-  await page.getByRole('combobox', { name: 'Smallest unit' }).selectOption('regiment');
-  await expect(page.getByRole('button', { name: 'Add subordinate to 1st Brigade' })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Add subordinate to 1st Brigade' }).click();
+  await page.getByRole('button', { name: 'Add subordinate to Voss Division' }).click();
   const form = page.getByTestId('unit-create-form');
   await expect(form).toBeVisible();
   await expect(form.getByRole('combobox', { name: /^Parent formation/ })).toHaveValue(
-    'unit-north-brigade-1',
+    'unit-north-division',
   );
-  await expect(form.getByRole('combobox', { name: 'Echelon', exact: true })).toHaveValue(
-    'regiment',
-  );
-  await expect(form.getByLabel('Initial strength')).toHaveValue('500');
+  await expect(form.getByRole('combobox', { name: 'Echelon', exact: true })).toHaveValue('brigade');
+  await expect(form.getByLabel('Initial strength')).toHaveValue('1500');
 
-  await form.getByLabel('Custom name').fill('1st Grenadier Regiment');
+  await form.getByLabel('Custom name').fill('Hale Guard');
   await form.getByLabel('Initial strength').fill('700');
   await form.getByRole('button', { name: 'Create unit' }).click();
 
-  await expect(page.getByTestId('unit-editor')).toContainText('1st Grenadier Regiment');
-  await expect(division).toContainText('Σ 3,900');
-  await expect(
-    page.getByRole('button', { name: 'Add subordinate to 1st Grenadier Regiment' }),
-  ).toHaveCount(0);
+  await expect(page.getByTestId('unit-editor')).toContainText('Hale Guard');
+  await expect(division).toContainText('Σ 5,700');
+  await expect(page.getByRole('button', { name: 'Add subordinate to Hale Guard' })).toHaveCount(0);
 
   await page.getByLabel('Initial strength').fill('800');
   await page.getByLabel('Initial strength').blur();
-  await expect(division).toContainText('Σ 4,000');
+  await expect(division).toContainText('Σ 5,800');
   await expect(page.getByTestId('roster-save-status')).toHaveText('Saved', { timeout: 5_000 });
 
   await page.reload();
   await openArmyWorkspace(page);
-  await expect(page.getByRole('combobox', { name: 'Smallest unit' })).toHaveValue('regiment');
+  await expect(page.getByRole('combobox', { name: 'Smallest unit' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Select unit Voss Division' })).toContainText(
-    'Σ 4,000',
+    'Σ 5,800',
   );
 });
 

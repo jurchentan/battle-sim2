@@ -33,8 +33,6 @@ describe('army roster store', () => {
       corps: 'numeric-universal',
       division: 'numeric-universal',
       brigade: 'numeric-universal',
-      regiment: 'numeric-universal',
-      other: 'numeric-universal',
     });
 
     const army = unwrap(
@@ -432,43 +430,36 @@ describe('army roster store', () => {
     expect(useRosterStore.getState().future).toHaveLength(0);
   });
 
-  it('changes the smallest unit and enforces leaf formations', () => {
-    const before = useRosterStore.getState().document;
-    const blocked = useRosterStore.getState().setSmallestUnitEchelon('corps');
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.error).toContain('below Corps');
-    expect(useRosterStore.getState().document).toBe(before);
+  it('keeps brigades as the fixed smallest echelon', () => {
+    const document = useRosterStore.getState().document;
+    expect(document.smallestUnitEchelon).toBe('brigade');
 
-    const changed = useRosterStore.getState().setSmallestUnitEchelon('regiment');
-    expect(changed.ok).toBe(true);
-    expect(useRosterStore.getState().document.smallestUnitEchelon).toBe('regiment');
-
-    const regiment = unwrap(
+    const brigade = unwrap(
       useRosterStore.getState().addUnit({
         factionId: 'faction-north',
-        echelon: 'regiment',
+        echelon: 'brigade',
         unitType: 'infantry',
-        parentUnitId: 'unit-north-brigade-1',
+        parentUnitId: 'unit-north-division',
       }),
     );
-    const document = useRosterStore.getState().document;
-    expect(findUnit(document, regiment.id)?.parentUnitId).toBe('unit-north-brigade-1');
-    expect(findUnit(document, regiment.id)?.initialStrength).toBe(500);
+    const added = findUnit(useRosterStore.getState().document, brigade.id);
+    expect(added?.parentUnitId).toBe('unit-north-division');
+    expect(added?.initialStrength).toBe(1500);
   });
 
-  it('rejects adding subordinates to a formation at the smallest echelon', () => {
+  it('rejects subordinates under a brigade', () => {
     const before = useRosterStore.getState().document;
     const result = useRosterStore.getState().addUnit({
       factionId: 'faction-north',
       customName: 'Invalid Child',
-      echelon: 'regiment',
+      echelon: 'brigade',
       unitType: 'infantry',
       parentUnitId: 'unit-north-brigade-1',
       initialStrength: 500,
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('smallest unit');
+    if (!result.ok) expect(result.error).toContain('cannot be placed under');
     expect(useRosterStore.getState().document).toBe(before);
   });
 

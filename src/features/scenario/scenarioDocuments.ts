@@ -13,6 +13,7 @@ import {
   type UnitPhaseState,
 } from '../../models';
 import {
+  createBlankRoster,
   effectiveUnitStrength,
   echelonRank,
   factionNamingMode,
@@ -27,8 +28,6 @@ export const DEFAULT_FRONTAGE_BY_ECHELON: Record<UnitEchelon, number> = {
   corps: 230,
   division: 180,
   brigade: 120,
-  regiment: 80,
-  other: 100,
 };
 
 export type FormationFrontages = Record<UnitEchelon, number>;
@@ -44,8 +43,6 @@ export const DEFAULT_FORMATION_FONT_SIZES: Record<UnitEchelon, number> = {
   corps: 25,
   division: 20,
   brigade: 15,
-  regiment: 10,
-  other: 10,
 };
 
 export type FormationFontSizes = Record<UnitEchelon, number>;
@@ -63,8 +60,6 @@ export const DEFAULT_FORMATION_LABEL_FORMATS: FormationLabelFormats = {
   corps: 'full',
   division: 'full',
   brigade: 'shortened',
-  regiment: 'shortened',
-  other: 'shortened',
 };
 
 export const FORMATION_LABEL_FORMAT_OPTIONS: readonly {
@@ -82,8 +77,6 @@ const ECHELON_NAME_WORDS: Record<UnitEchelon, string> = {
   corps: 'Corps',
   division: 'Division',
   brigade: 'Brigade',
-  regiment: 'Regiment',
-  other: 'Formation',
 };
 
 function escapeRegExp(value: string): string {
@@ -129,7 +122,8 @@ export interface NewScenarioInput {
   name: string;
   description?: string;
   terrain: TerrainMap;
-  roster: ArmyRoster;
+  /** Optional initial order of battle; new scenarios otherwise start empty. */
+  orderOfBattle?: ArmyRoster;
 }
 
 export interface ScenarioBounds {
@@ -144,19 +138,23 @@ export function defaultFrontageLength(echelon: UnitEchelon): number {
 }
 
 /**
- * Creates a self-contained scenario from deep copies of a saved terrain map
- * and roster. Later edits to the library sources cannot reach these snapshots.
+ * Creates a self-contained scenario from a deep copy of a saved terrain map.
+ * The scenario owns its order of battle; when none is supplied it starts empty
+ * with brigades as the smallest formation. Later edits to library sources
+ * cannot reach these snapshots.
  */
 export function createScenarioDocument(input: NewScenarioInput): BattleScenario {
   const phaseId = createId();
   const now = new Date().toISOString();
+  const name = input.name.trim();
+  const orderOfBattle = input.orderOfBattle ?? createBlankRoster(`${name} order of battle`);
   const scenario: BattleScenario = {
     schemaVersion: SCHEMA_VERSION,
     id: createId(),
-    name: input.name.trim(),
+    name,
     ...(input.description?.trim() ? { description: input.description.trim() } : {}),
     terrainSnapshot: structuredClone(input.terrain),
-    rosterSnapshot: structuredClone(input.roster),
+    orderOfBattle: structuredClone(orderOfBattle),
     phases: [
       {
         id: phaseId,
@@ -211,7 +209,7 @@ export function scenarioUnitLabel(
   if (format === 'none') return '';
 
   const override = state?.labelOverride?.trim();
-  const roster = scenario.rosterSnapshot;
+  const roster = scenario.orderOfBattle;
 
   if (override) {
     return format === 'shortened' ? shortenFormationName(override, unit.echelon) : override;

@@ -65,7 +65,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
             </span>
             <span data-testid="scenario-sources" className="hidden md:inline">
               {' '}
-              · {scenario.terrainSnapshot.name} / {scenario.rosterSnapshot.name}
+              · {scenario.terrainSnapshot.name} / {scenario.orderOfBattle.name}
             </span>
           </p>
         </div>
@@ -81,7 +81,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
                 : 'border-[#a9bc99] bg-[#e8efde] text-[#4f6344]',
             ].join(' ')}
           >
-            {mode === 'terrain' ? 'Terrain mode' : 'Units mode'}
+            {mode === 'terrain' ? 'Terrain mode' : 'Order of battle'}
           </span>
 
           <div
@@ -105,7 +105,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
             </button>
             <button
               type="button"
-              aria-label="Units mode"
+              aria-label="Order of battle mode"
               aria-pressed={mode === 'units'}
               className={[
                 'border-l border-[#d8cdb5] px-2 py-1.5 text-[0.65rem] font-semibold transition-colors',
@@ -115,7 +115,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
               ].join(' ')}
               onClick={() => setMode('units')}
             >
-              Units
+              Order of battle
             </button>
           </div>
 
@@ -206,10 +206,9 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
             <div className="max-w-md">
               <h3 className={sectionHeadingClass}>Formation display</h3>
               <p className="mt-1 text-[0.68rem] leading-4 text-[#7c715c]">
-                Formations at or below the roster&apos;s smallest echelon render as rectangles.
-                Higher formations render as text, with larger default sizes for higher echelons.
-                Names can show the full formation name, a shortened form, the commander&apos;s
-                surname, or none at all.
+                Brigades render as rectangles. Higher formations render as text, with larger default
+                sizes for higher echelons. Names can show the full formation name, a shortened form,
+                the commander&apos;s surname, or none at all.
               </p>
               <label className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-[#4a4438]">
                 <input

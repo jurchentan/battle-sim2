@@ -14,8 +14,6 @@ const ECHELON_SHORT: Record<UnitDefinition['echelon'], string> = {
   corps: 'C',
   division: 'D',
   brigade: 'B',
-  regiment: 'R',
-  other: 'O',
 };
 
 function unitMeta(roster: ArmyRoster, unit: UnitDefinition): string {

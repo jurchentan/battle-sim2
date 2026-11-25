@@ -27,13 +27,13 @@ export function ScenarioWorkspace() {
     if (selectedUnitIds.length === 0) return;
 
     const selectableUnitIds = selectedUnitIds.filter((unitId) => {
-      const unit = scenario.rosterSnapshot.units.find((candidate) => candidate.id === unitId);
+      const unit = scenario.orderOfBattle.units.find((candidate) => candidate.id === unitId);
       return unit && !hiddenFactionIds.includes(unit.factionId);
     });
     if (selectableUnitIds.length !== selectedUnitIds.length) {
       useScenarioEditorStore.getState().selectUnits(selectableUnitIds);
     }
-  }, [hiddenFactionIds, scenario.rosterSnapshot.units, selectedUnitIds]);
+  }, [hiddenFactionIds, scenario.orderOfBattle.units, selectedUnitIds]);
 
   useEffect(() => {
     if (!selectedFeatureId) return;

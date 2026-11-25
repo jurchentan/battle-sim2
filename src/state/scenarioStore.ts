@@ -3,9 +3,27 @@ import {
   battleScenarioSchema,
   createSeedBattleScenario,
   type BattleScenario,
+  type Faction,
   type Point,
   type UnitPhaseState,
 } from '../models';
+import {
+  generateArmy,
+  type ArmyGeneratorInput,
+  type GenerateArmyResult,
+} from '../features/army/armyGenerator';
+import {
+  addFaction as addFactionMutation,
+  addUnit as addUnitMutation,
+  deleteFaction as deleteFactionMutation,
+  deleteUnit as deleteUnitMutation,
+  reparentUnit as reparentUnitMutation,
+  updateFaction as updateFactionMutation,
+  updateUnit as updateUnitMutation,
+  type NewFactionInput,
+  type NewUnitInput,
+  type UnitPatch,
+} from '../features/army/rosterMutations';
 import {
   activeScenarioPhase,
   createScenarioDocument,
@@ -61,6 +79,13 @@ function replaceActivePhase(
   };
 }
 
+export type ScenarioArmyResult = ScenarioMutationResult & {
+  factionId?: string;
+  factionName?: string;
+  unitIds?: string[];
+  rootUnitIds?: string[];
+};
+
 export interface ScenarioEditorStore {
   document: BattleScenario;
   past: BattleScenario[];
@@ -68,6 +93,14 @@ export interface ScenarioEditorStore {
   loadDocument: (document: BattleScenario) => void;
   createScenario: (input: NewScenarioInput) => ScenarioCreateResult;
   renameDocument: (name: string) => ScenarioMutationResult;
+  addFaction: (input: NewFactionInput) => ScenarioCreateResult;
+  updateFaction: (factionId: string, patch: Partial<Omit<Faction, 'id'>>) => ScenarioMutationResult;
+  deleteFaction: (factionId: string) => ScenarioMutationResult;
+  addUnit: (input: NewUnitInput) => ScenarioCreateResult;
+  updateUnit: (unitId: string, patch: UnitPatch) => ScenarioMutationResult;
+  reparentUnit: (unitId: string, parentUnitId: string | null) => ScenarioMutationResult;
+  deleteUnit: (unitId: string) => ScenarioMutationResult;
+  generateArmy: (input: ArmyGeneratorInput) => ScenarioArmyResult;
   placeUnit: (
     unitId: string,
     position: Point,
@@ -94,17 +127,58 @@ function normalizeUnitStatePatch(patch: Partial<UnitPhaseState>): Partial<UnitPh
   return normalized;
 }
 
+/**
+ * Removes a unit from every phase and clears annotation links. Deleting the
+ * unit and its phase footprint must happen in one history entry.
+ */
+function cascadeDeletedUnit(document: BattleScenario, unitId: string): BattleScenario {
+  return {
+    ...document,
+    phases: document.phases.map((phase) => {
+      const unitStates = { ...phase.unitStates };
+      delete unitStates[unitId];
+
+      let annotationsChanged = false;
+      const annotations = phase.annotations.map((annotation) => {
+        if (annotation.linkedUnitId !== unitId) return annotation;
+        annotationsChanged = true;
+        const { linkedUnitId: _linkedUnitId, ...rest } = annotation;
+        return rest;
+      });
+
+      return {
+        ...phase,
+        unitStates,
+        annotations: annotationsChanged ? annotations : phase.annotations,
+      };
+    }),
+  };
+}
+
+function withOrderOfBattle(
+  document: BattleScenario,
+  orderOfBattle: BattleScenario['orderOfBattle'],
+): BattleScenario {
+  return {
+    ...document,
+    orderOfBattle,
+    updatedAt: timestamp(),
+  };
+}
+
 export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
   document: createSeedBattleScenario(),
   past: [],
   future: [],
 
-  loadDocument: (document) =>
+  loadDocument: (document) => {
+    const parsed = battleScenarioSchema.safeParse(structuredClone(document));
     set({
-      document: structuredClone(document),
+      document: parsed.success ? parsed.data : structuredClone(document),
       past: [],
       future: [],
-    }),
+    });
+  },
 
   createScenario: (input) => {
     try {
@@ -136,6 +210,103 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
     return { ok: true };
   },
 
+  addFaction: (input) => {
+    const state = get();
+    const result = addFactionMutation(state.document.orderOfBattle, input);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The faction is not valid.' };
+    set(next);
+    return { ok: true, id: result.id };
+  },
+
+  updateFaction: (factionId, patch) => {
+    const state = get();
+    const result = updateFactionMutation(state.document.orderOfBattle, factionId, patch);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The faction is not valid.' };
+    set(next);
+    return { ok: true };
+  },
+
+  deleteFaction: (factionId) => {
+    const state = get();
+    const result = deleteFactionMutation(state.document.orderOfBattle, factionId);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The faction could not be deleted.' };
+    set(next);
+    return { ok: true };
+  },
+
+  addUnit: (input) => {
+    const state = get();
+    const result = addUnitMutation(state.document.orderOfBattle, input);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The unit is not valid.' };
+    set(next);
+    return { ok: true, id: result.id };
+  },
+
+  updateUnit: (unitId, patch) => {
+    const state = get();
+    const result = updateUnitMutation(state.document.orderOfBattle, unitId, patch);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The unit is not valid.' };
+    set(next);
+    return { ok: true };
+  },
+
+  reparentUnit: (unitId, parentUnitId) => {
+    const state = get();
+    const result = reparentUnitMutation(state.document.orderOfBattle, unitId, parentUnitId);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The unit is not valid.' };
+    set(next);
+    return { ok: true };
+  },
+
+  deleteUnit: (unitId) => {
+    const state = get();
+    const result = deleteUnitMutation(state.document.orderOfBattle, unitId);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(
+      state,
+      cascadeDeletedUnit(withOrderOfBattle(state.document, result.document), unitId),
+    );
+    if (!next) return { ok: false, error: 'The unit could not be deleted.' };
+    set(next);
+    return { ok: true };
+  },
+
+  generateArmy: (input) => {
+    const state = get();
+    const result: GenerateArmyResult = generateArmy(state.document.orderOfBattle, input);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const next = commit(state, withOrderOfBattle(state.document, result.document));
+    if (!next) return { ok: false, error: 'The generated army is not valid.' };
+    set(next);
+    return {
+      ok: true,
+      factionId: result.factionId,
+      factionName: result.factionName,
+      unitIds: result.unitIds,
+      rootUnitIds: result.rootUnitIds,
+    };
+  },
+
   placeUnit: (unitId, position, frontageByEchelon) => {
     const state = get();
     const phase = activeScenarioPhase(state.document);
@@ -144,12 +315,12 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
       return { ok: false, error: 'That formation is already deployed in this phase.' };
     }
 
-    const unit = state.document.rosterSnapshot.units.find((candidate) => candidate.id === unitId);
+    const unit = state.document.orderOfBattle.units.find((candidate) => candidate.id === unitId);
     if (!unit) return { ok: false, error: 'The selected formation could not be found.' };
 
     const deployedUnitIds = new Set(Object.keys(phase.unitStates));
     const unitStates = deployFormationStates(
-      state.document.rosterSnapshot,
+      state.document.orderOfBattle,
       unit,
       position,
       deployedUnitIds,

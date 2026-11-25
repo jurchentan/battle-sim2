@@ -1,5 +1,10 @@
-import { armyRosterSchema, SCHEMA_VERSION, type ArmyRoster } from '../../models';
-import { inferSmallestUnitEchelon, normalizeRosterDocument } from './rosterDocuments';
+import {
+  armyRosterSchema,
+  legacyEchelonCount,
+  SCHEMA_VERSION,
+  type ArmyRoster,
+} from '../../models';
+import { normalizeRosterDocument } from './rosterDocuments';
 
 type JsonObject = Record<string, unknown>;
 
@@ -14,7 +19,8 @@ export const ARMY_MIGRATIONS: Readonly<Record<number, ArmyDocumentMigration>> = 
 export type ArmyMigrationResult = { ok: true; document: JsonObject } | { ok: false; error: string };
 
 export type ArmyParseResult =
-  { ok: true; document: ArmyRoster } | { ok: false; error: string; issues?: string[] };
+  | { ok: true; document: ArmyRoster; migratedEchelonCount: number }
+  | { ok: false; error: string; issues?: string[] };
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -93,15 +99,11 @@ export function parseArmyFile(text: string): ArmyParseResult {
     };
   }
 
-  const document =
-    'smallestUnitEchelon' in candidate
-      ? result.data
-      : {
-          ...result.data,
-          smallestUnitEchelon: inferSmallestUnitEchelon(result.data.units),
-        };
-
-  return { ok: true, document };
+  return {
+    ok: true,
+    document: result.data,
+    migratedEchelonCount: legacyEchelonCount(candidate),
+  };
 }
 
 export function serializeArmyFile(document: ArmyRoster): string {
