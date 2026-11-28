@@ -7,6 +7,7 @@ import {
   canHaveSubordinates,
   defaultSymbolStyle,
   defaultUnitStrength,
+  descendantUnitIds,
   draftUnitDisplayName,
   ECHELON_LABELS,
   ECHELON_ORDER,
@@ -429,6 +430,7 @@ function UnitEditForm({
   const parents = useMemo(() => eligibleParentUnits(roster, unit.id), [roster, unit.id]);
   const path = hierarchyPath(roster, unit.id);
   const children = unitChildren(roster, unit.id);
+  const descendantCount = descendantUnitIds(roster, unit.id).size;
   const aggregatedStrength = isStrengthAggregated(roster, unit);
   const effectiveStrength = effectiveUnitStrength(roster, unit.id);
   const canAddSubordinate = canHaveSubordinates(roster, unit);
@@ -547,9 +549,18 @@ function UnitEditForm({
           ) : null}
           {confirmDelete ? (
             <>
-              <span className="text-[0.68rem] font-semibold text-[#8b3a2f]">Delete this unit?</span>
+              <span
+                data-testid="delete-unit-warning"
+                className="max-w-64 text-[0.68rem] font-semibold text-[#8b3a2f]"
+              >
+                {descendantCount > 0
+                  ? `Delete this unit and its ${descendantCount} subordinate unit${
+                      descendantCount === 1 ? '' : 's'
+                    }?`
+                  : 'Delete this unit?'}
+              </span>
               <button type="button" className={dangerButtonClass} onClick={handleDelete}>
-                Confirm delete unit
+                {descendantCount > 0 ? 'Confirm cascade delete' : 'Confirm delete unit'}
               </button>
               <button
                 type="button"
@@ -791,8 +802,10 @@ function UnitEditForm({
       {children.length > 0 ? (
         <p className="mt-3 text-[0.68rem] text-[#7c715c]">
           {children.length} direct subordinate{children.length === 1 ? '' : 's'}:{' '}
-          {children.map((child) => unitDisplayName(roster, child)).join(', ')}. Reparent or delete
-          them first to remove this formation.
+          {children.map((child) => unitDisplayName(roster, child)).join(', ')}. Deleting this unit
+          also deletes{' '}
+          {descendantCount === 1 ? 'its subordinate' : `all ${descendantCount} of its subordinates`}
+          .
         </p>
       ) : null}
 

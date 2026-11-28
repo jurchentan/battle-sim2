@@ -97,6 +97,48 @@ describe('scenario editor store', () => {
     expect(useScenarioEditorStore.getState().hiddenTerrainLayerIds).toEqual([]);
   });
 
+  it('arms, cancels, and stores the last battle line', () => {
+    const store = useScenarioEditorStore.getState();
+    store.selectFeature('feature-a');
+    store.beginBattleLine();
+    store.selectUnits(['unit-a', 'unit-b']);
+
+    expect(useScenarioEditorStore.getState()).toMatchObject({
+      mode: 'units',
+      selectedUnitIds: ['unit-a', 'unit-b'],
+      selectedFeatureId: null,
+      placementUnitId: null,
+      battleLineActive: true,
+      lastBattleLine: null,
+    });
+
+    useScenarioEditorStore.getState().cancelBattleLine();
+    expect(useScenarioEditorStore.getState().battleLineActive).toBe(false);
+
+    useScenarioEditorStore.getState().beginBattleLine();
+    useScenarioEditorStore.getState().beginPlacement('unit-c');
+    expect(useScenarioEditorStore.getState().battleLineActive).toBe(false);
+
+    const line = {
+      unitIds: ['unit-a', 'unit-b'],
+      brigadeIds: ['unit-a', 'unit-b'],
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+    };
+    useScenarioEditorStore.getState().beginBattleLine();
+    useScenarioEditorStore.getState().setLastBattleLine(line);
+
+    expect(useScenarioEditorStore.getState()).toMatchObject({
+      battleLineActive: false,
+      lastBattleLine: line,
+    });
+
+    useScenarioEditorStore.getState().clearLastBattleLine();
+    expect(useScenarioEditorStore.getState().lastBattleLine).toBeNull();
+  });
+
   it('resets every transient editor value for a new scenario', () => {
     const store = useScenarioEditorStore.getState();
     store.setMode('terrain');
@@ -104,6 +146,16 @@ describe('scenario editor store', () => {
     store.toggleTerrainLayerVisible('layer-a');
     store.selectFeature('feature-a');
     store.beginPlacement('unit-a');
+    store.beginBattleLine();
+    store.setLastBattleLine({
+      unitIds: ['unit-a'],
+      brigadeIds: ['unit-a'],
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+    });
+    store.beginBattleLine();
 
     useScenarioEditorStore.getState().resetForScenario();
 
@@ -114,6 +166,8 @@ describe('scenario editor store', () => {
       hiddenFactionIds: [],
       hiddenTerrainLayerIds: [],
       placementUnitId: null,
+      battleLineActive: false,
+      lastBattleLine: null,
     });
   });
 

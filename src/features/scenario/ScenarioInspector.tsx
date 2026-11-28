@@ -11,9 +11,9 @@ import { useScenarioStore } from '../../state/scenarioStore';
 import {
   ECHELON_LABELS,
   ECHELON_ORDER,
+  descendantUnitIds,
   effectiveUnitStrength,
   eligibleParentUnits,
-  hasSubordinates,
   hierarchyPath,
   unitChildren,
   unitDisplayName,
@@ -27,6 +27,7 @@ import {
 } from '../army/ui';
 import { FEATURE_KIND_LABELS } from '../terrain/kinds';
 import { NumberField, SelectField, TextField } from '../terrain/fields';
+import { resolveBattleLineSelection } from './battleLine';
 import { activeScenarioPhase, scenarioUnitLabel } from './scenarioDocuments';
 
 const UNIT_TYPES: readonly UnitType[] = ['infantry', 'cavalry', 'artillery', 'other'];
@@ -65,6 +66,116 @@ function geometrySummary(feature: TerrainFeature): string {
   }
 }
 
+function FormationActions({
+  scenario,
+  units,
+}: {
+  scenario: BattleScenario;
+  units: UnitDefinition[];
+}) {
+  const roster = scenario.orderOfBattle;
+  const phase = activeScenarioPhase(scenario);
+  const deployedUnits = units.filter((unit) => phase?.unitStates[unit.id]);
+  const singleUnit = units.length === 1 ? units[0] : undefined;
+  const singleState = singleUnit ? phase?.unitStates[singleUnit.id] : undefined;
+
+  const hiddenFactionIds = useScenarioEditorStore((store) => store.hiddenFactionIds);
+  const battleLineActive = useScenarioEditorStore((store) => store.battleLineActive);
+  const beginBattleLine = useScenarioEditorStore((store) => store.beginBattleLine);
+  const cancelBattleLine = useScenarioEditorStore((store) => store.cancelBattleLine);
+  const beginPlacement = useScenarioEditorStore((store) => store.beginPlacement);
+  const placementUnitId = useScenarioEditorStore((store) => store.placementUnitId);
+  const flipUnitStates = useScenarioStore((store) => store.flipUnitStates);
+  const undeployUnits = useScenarioStore((store) => store.undeployUnits);
+
+  const battleLineBrigadeCount = resolveBattleLineSelection(
+    roster,
+    units.map((unit) => unit.id),
+    hiddenFactionIds,
+  ).brigadeIds.length;
+  const canPlace = singleUnit !== undefined && !singleState;
+  const placeDisabled = !canPlace;
+  const placeTitle = canPlace
+    ? 'Arm placement, then click the map.'
+    : singleUnit
+      ? 'This formation is already deployed.'
+      : 'Select one undeployed formation to place it on the map.';
+
+  return (
+    <div
+      data-testid="formation-actions"
+      className="flex flex-col gap-2 border-t border-[#e0d6c1] pt-3"
+    >
+      <h4 className={sectionHeadingClass}>Bulk actions</h4>
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          data-testid="bulk-flip-180"
+          className={secondaryButtonClass}
+          disabled={deployedUnits.length === 0}
+          title="Rotate every deployed selected formation by 180°."
+          onClick={() => flipUnitStates(deployedUnits.map((unit) => unit.id))}
+        >
+          Flip 180°
+        </button>
+        <button
+          type="button"
+          data-testid="remove-selected-units"
+          className={dangerButtonClass}
+          disabled={deployedUnits.length === 0}
+          title="Remove every deployed selected formation from the map."
+          onClick={() => undeployUnits(deployedUnits.map((unit) => unit.id))}
+        >
+          Remove selected from map
+        </button>
+        <button
+          type="button"
+          data-testid="battle-line-draw"
+          className={secondaryButtonClass}
+          aria-pressed={battleLineActive}
+          disabled={!battleLineActive && battleLineBrigadeCount === 0}
+          title={
+            battleLineActive
+              ? 'Cancel the battle line tool (Esc).'
+              : battleLineBrigadeCount === 0
+                ? 'Select a formation with brigades, or select brigades directly.'
+                : `Draw a battle line for the ${battleLineBrigadeCount} selected brigade${
+                    battleLineBrigadeCount === 1 ? '' : 's'
+                  }.`
+          }
+          onClick={() => {
+            if (battleLineActive) {
+              cancelBattleLine();
+            } else {
+              beginBattleLine();
+            }
+          }}
+        >
+          {battleLineActive ? 'Cancel battle line' : 'Draw battle line'}
+        </button>
+        <button
+          type="button"
+          data-testid="place-selected-on-map"
+          className={primaryButtonClass}
+          disabled={placeDisabled}
+          title={placeTitle}
+          onClick={() => {
+            if (!singleUnit) return;
+            beginPlacement(singleUnit.id);
+          }}
+        >
+          {singleUnit && placementUnitId === singleUnit.id
+            ? 'Click the map to place'
+            : 'Place on map'}
+        </button>
+      </div>
+      <p className="text-[0.68rem] leading-4 text-[#7c715c]">
+        Actions apply to every selected formation. Place on map needs a single undeployed formation.
+      </p>
+    </div>
+  );
+}
+
 function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: UnitDefinition }) {
   const roster = scenario.orderOfBattle;
   const phase = activeScenarioPhase(scenario);
@@ -73,8 +184,6 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
   const reparentUnit = useScenarioStore((store) => store.reparentUnit);
   const deleteUnit = useScenarioStore((store) => store.deleteUnit);
   const updateUnitState = useScenarioStore((store) => store.updateUnitState);
-  const beginPlacement = useScenarioEditorStore((store) => store.beginPlacement);
-  const placementUnitId = useScenarioEditorStore((store) => store.placementUnitId);
   const selectUnit = useScenarioEditorStore((store) => store.selectUnit);
 
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +197,7 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
     .join(' › ');
   const strength = effectiveUnitStrength(roster, unit.id);
   const children = unitChildren(roster, unit.id);
-  const blockedDelete = hasSubordinates(roster, unit.id);
+  const descendantCount = descendantUnitIds(roster, unit.id).size;
   const parents = eligibleParentUnits(roster, unit.id);
 
   const report = (result: { ok: true } | { ok: false; error: string }): void => {
@@ -137,18 +246,6 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
             {ECHELON_LABELS[unit.echelon]} · {faction?.name ?? 'Unknown faction'}
           </p>
         </div>
-        {state ? (
-          <button
-            type="button"
-            data-testid="remove-unit-from-map"
-            className={`${dangerButtonClass} shrink-0`}
-            onClick={() => {
-              useScenarioStore.getState().undeployUnit(unit.id);
-            }}
-          >
-            Remove from map
-          </button>
-        ) : null}
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -264,17 +361,12 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
         <div className="rounded-md border border-[#e2d8c3] bg-[#f8f2e5] px-3 py-2.5">
           <p className="text-xs font-semibold text-[#4a4438]">Not deployed in this phase</p>
           <p className="mt-1 text-[0.68rem] leading-4 text-[#7c715c]">
-            Place this formation on the map, then drag it into position.
+            Place this formation on the map from Bulk actions, then drag it into position.
           </p>
-          <button
-            type="button"
-            className={`${primaryButtonClass} mt-2`}
-            onClick={() => beginPlacement(unit.id)}
-          >
-            {placementUnitId === unit.id ? 'Click the map to place' : 'Place on map'}
-          </button>
         </div>
       )}
+
+      <FormationActions scenario={scenario} units={[unit]} />
 
       <div>
         <h4 className={sectionHeadingClass}>Details</h4>
@@ -311,8 +403,17 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
       <div className="flex flex-col gap-1.5 border-t border-[#e0d6c1] pt-3">
         {confirmDelete ? (
           <>
-            <p className="text-[0.68rem] font-semibold text-[#8b3a2f]">
-              Delete this formation and remove its phase states from every phase?
+            <p
+              data-testid="delete-unit-warning"
+              className="text-[0.68rem] font-semibold text-[#8b3a2f]"
+            >
+              {descendantCount > 0
+                ? `This formation has ${descendantCount} subordinate formation${
+                    descendantCount === 1 ? '' : 's'
+                  }. Delete ${descendantCount === 1 ? 'it' : 'them all'} and remove ${
+                    descendantCount === 1 ? 'its state' : 'their states'
+                  } from every phase?`
+                : 'Delete this formation and remove its phase states from every phase?'}
             </p>
             <div className="flex items-center gap-1.5">
               <button
@@ -337,14 +438,13 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
             type="button"
             className={`${dangerButtonClass} self-start`}
             data-testid="delete-unit"
-            disabled={blockedDelete}
             title={
-              blockedDelete
-                ? 'Delete or reparent subordinate formations first.'
+              descendantCount > 0
+                ? 'Delete this formation and its subordinates after confirmation.'
                 : 'Delete this formation from the order of battle.'
             }
             onClick={() => {
-              if (state) {
+              if (state || descendantCount > 0) {
                 setConfirmDelete(true);
               } else {
                 handleDelete();
@@ -354,12 +454,6 @@ function UnitInspector({ scenario, unit }: { scenario: BattleScenario; unit: Uni
             Delete unit
           </button>
         )}
-        {blockedDelete ? (
-          <p className="text-[0.64rem] leading-4 text-[#857a64]">
-            Delete or reparent the {children.length} subordinate formation
-            {children.length === 1 ? '' : 's'} first.
-          </p>
-        ) : null}
         {error ? (
           <p role="alert" className="text-[0.68rem] font-medium text-[#8b3a2f]">
             {error}
@@ -418,8 +512,6 @@ function MultiUnitInspector({
   const roster = scenario.orderOfBattle;
   const phase = activeScenarioPhase(scenario);
   const updateUnitStates = useScenarioStore((store) => store.updateUnitStates);
-  const undeployUnits = useScenarioStore((store) => store.undeployUnits);
-  const selectUnits = useScenarioEditorStore((store) => store.selectUnits);
   const deployedUnits = units.filter((unit) => phase?.unitStates[unit.id]);
   const primaryState = deployedUnits[0] ? phase?.unitStates[deployedUnits[0].id] : undefined;
 
@@ -429,9 +521,11 @@ function MultiUnitInspector({
     );
   };
 
-  const removeSelected = (): void => {
-    undeployUnits(deployedUnits.map((unit) => unit.id));
-    selectUnits([]);
+  const setFrontage = (frontageLength: number): void => {
+    if (deployedUnits.length === 0) return;
+    updateUnitStates(
+      Object.fromEntries(deployedUnits.map((unit) => [unit.id, { frontageLength }] as const)),
+    );
   };
 
   return (
@@ -457,11 +551,24 @@ function MultiUnitInspector({
           step={1}
           onCommit={setRotation}
         />
+        <NumberField
+          label="Frontage (all selected)"
+          value={primaryState?.frontageLength ?? 120}
+          min={20}
+          step={5}
+          onCommit={setFrontage}
+        />
+        <p className="text-[0.68rem] leading-4 text-[#7c715c]">
+          Bulk frontage changes the stored width only; it does not re-space the battle line. Redraw
+          the line if the spacing needs to change.
+        </p>
         <p className="text-[0.68rem] leading-4 text-[#7c715c]">
           Drag any selected formation to move the whole group. The transformer&apos;s top handle
           rotates every selected formation around the group centre.
         </p>
       </div>
+
+      <FormationActions scenario={scenario} units={units} />
 
       <div>
         <h4 className={sectionHeadingClass}>Selection</h4>
@@ -485,17 +592,6 @@ function MultiUnitInspector({
           })}
         </ul>
       </div>
-
-      {deployedUnits.length > 0 ? (
-        <button
-          type="button"
-          data-testid="remove-selected-units"
-          className={dangerButtonClass}
-          onClick={removeSelected}
-        >
-          Remove selected from map
-        </button>
-      ) : null}
     </div>
   );
 }

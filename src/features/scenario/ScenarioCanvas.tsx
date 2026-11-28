@@ -1,14 +1,16 @@
 import type Konva from 'konva';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Group, Layer, Rect, Stage } from 'react-konva';
+import { Group, Layer, Line, Rect, Stage } from 'react-konva';
 import { screenToWorld } from '../../canvas/camera';
 import { useCameraStore } from '../../canvas/cameraStore';
+import { flattenPoints, simplifyPoints } from '../../canvas/geometry';
 import type { Point, TerrainMap } from '../../models';
 import { useScenarioEditorStore } from '../../state/scenarioEditorStore';
 import { useScenarioStore } from '../../state/scenarioStore';
 import { descendantUnitIds } from '../army/rosterDocuments';
 import { currentCanvasBounds } from '../terrain/canvasBounds';
 import { isTypingTarget } from '../terrain/useEditorShortcuts';
+import { computeBattleLineLayout, resolveBattleLineSelection } from './battleLine';
 import {
   activeScenarioPhase,
   isRectangleFormation,
@@ -30,6 +32,19 @@ const PAPER_FILL: Record<TerrainMap['backgroundStyle'], string> = {
   'aged-paper': '#f1e6cd',
   parchment: '#eeddc0',
 };
+
+/** Minimum screen-space spacing between recorded freehand points. */
+const BATTLE_LINE_POINT_SPACING = 2;
+/** World-space simplification tolerance for the finished stroke. */
+const BATTLE_LINE_SIMPLIFY_TOLERANCE = 1.5;
+const BATTLE_LINE_TICK_HALF_LENGTH = 12;
+
+interface BattleLineTick {
+  x: number;
+  y: number;
+  angle: number;
+  color: string;
+}
 
 function formationScreenBounds(
   shapeNode: Konva.Node,
@@ -60,10 +75,14 @@ export function ScenarioCanvas() {
   const cursorReadoutRef = useRef<HTMLSpanElement>(null);
   const panCleanupRef = useRef<(() => void) | null>(null);
   const marqueeCleanupRef = useRef<(() => void) | null>(null);
+  const battleLineCleanupRef = useRef<(() => void) | null>(null);
+  const battleLinePointsRef = useRef<Point[]>([]);
   const [formationNodes] = useState(() => new Map<string, Konva.Node>());
   const [labelNodes] = useState(() => new Map<string, Konva.Node>());
   const [formationNodeVersion, setFormationNodeVersion] = useState(0);
   const [marqueeRect, setMarqueeRect] = useState<ScreenRect | null>(null);
+  const [battleLineDraft, setBattleLineDraft] = useState<Point[]>([]);
+  const [battleLineError, setBattleLineError] = useState<string | null>(null);
 
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [panning, setPanning] = useState(false);
@@ -78,6 +97,8 @@ export function ScenarioCanvas() {
   const hiddenFactionIds = useScenarioEditorStore((state) => state.hiddenFactionIds);
   const hiddenTerrainLayerIds = useScenarioEditorStore((state) => state.hiddenTerrainLayerIds);
   const placementUnitId = useScenarioEditorStore((state) => state.placementUnitId);
+  const battleLineActive = useScenarioEditorStore((state) => state.battleLineActive);
+  const lastBattleLine = useScenarioEditorStore((state) => state.lastBattleLine);
   const formationFontSizes = useScenarioEditorStore((state) => state.formationFontSizes);
   const formationLabelFormats = useScenarioEditorStore((state) => state.formationLabelFormats);
   const defaultFrontageByEchelon = useScenarioEditorStore(
@@ -91,6 +112,7 @@ export function ScenarioCanvas() {
   const selectUnits = useScenarioEditorStore((state) => state.selectUnits);
   const selectFeature = useScenarioEditorStore((state) => state.selectFeature);
   const cancelPlacement = useScenarioEditorStore((state) => state.cancelPlacement);
+  const cancelBattleLine = useScenarioEditorStore((state) => state.cancelBattleLine);
   const camera = useCameraStore((state) => state.camera);
 
   useLayoutEffect(() => {
@@ -242,6 +264,129 @@ export function ScenarioCanvas() {
     [formationNodes, labelNodes, selectUnits, stopMarquee, stopPan],
   );
 
+  const stopBattleLineStroke = useCallback((commit: boolean) => {
+    battleLineCleanupRef.current?.();
+    battleLineCleanupRef.current = null;
+
+    const rawPoints = battleLinePointsRef.current;
+    battleLinePointsRef.current = [];
+    setBattleLineDraft([]);
+    if (!commit) return;
+
+    const editor = useScenarioEditorStore.getState();
+    const scenarioState = useScenarioStore.getState();
+    const activePhase = activeScenarioPhase(scenarioState.document);
+    if (!activePhase) {
+      setBattleLineError('The active phase could not be found.');
+      return;
+    }
+
+    const selection = resolveBattleLineSelection(
+      scenarioState.document.orderOfBattle,
+      editor.selectedUnitIds,
+      editor.hiddenFactionIds,
+    );
+    const points = simplifyPoints(rawPoints, BATTLE_LINE_SIMPLIFY_TOLERANCE);
+    if (points.length < 2) {
+      setBattleLineError('Draw a longer battle line.');
+      return;
+    }
+
+    const result = computeBattleLineLayout({
+      roster: scenarioState.document.orderOfBattle,
+      states: activePhase.unitStates,
+      brigadeIds: selection.brigadeIds,
+      points,
+      frontageByEchelon: editor.defaultFrontageByEchelon,
+      dynamicFrontage: editor.dynamicFrontage,
+      explicitlySelectedUnitIds: editor.selectedUnitIds,
+    });
+    if (!result.ok) {
+      setBattleLineError(result.error);
+      return;
+    }
+
+    const applied = scenarioState.applyDeploymentStates(result.states);
+    if (!applied.ok) {
+      setBattleLineError(applied.error);
+      return;
+    }
+
+    editor.setLastBattleLine({
+      unitIds: result.unitIds,
+      brigadeIds: result.brigadeIds,
+      points,
+    });
+    editor.selectUnits(result.unitIds);
+    setBattleLineError(null);
+  }, []);
+
+  const beginBattleLineStroke = useCallback(
+    (clientX: number, clientY: number) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+
+      stopPan();
+      stopMarquee();
+      stopBattleLineStroke(false);
+
+      const containerRect = stage.container().getBoundingClientRect();
+      const toWorld = (x: number, y: number): Point =>
+        screenToWorld(useCameraStore.getState().camera, {
+          x: x - containerRect.left,
+          y: y - containerRect.top,
+        });
+
+      const start = toWorld(clientX, clientY);
+      battleLinePointsRef.current = [start];
+      setBattleLineDraft([start]);
+      setBattleLineError(null);
+
+      const handleMove = (event: MouseEvent): void => {
+        const point = toWorld(event.clientX, event.clientY);
+        const last = battleLinePointsRef.current[battleLinePointsRef.current.length - 1];
+        const scale = useCameraStore.getState().camera.scale;
+        if (
+          last &&
+          Math.hypot(point.x - last.x, point.y - last.y) * scale < BATTLE_LINE_POINT_SPACING
+        ) {
+          return;
+        }
+        battleLinePointsRef.current = [...battleLinePointsRef.current, point];
+        setBattleLineDraft(battleLinePointsRef.current);
+        setCursorWorld(point);
+      };
+
+      const handleUp = (): void => {
+        stopBattleLineStroke(true);
+      };
+
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+      battleLineCleanupRef.current = () => {
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleUp);
+      };
+    },
+    [stopBattleLineStroke, stopMarquee, stopPan],
+  );
+
+  useEffect(() => {
+    if (battleLineActive) return;
+
+    battleLineCleanupRef.current?.();
+    battleLineCleanupRef.current = null;
+    battleLinePointsRef.current = [];
+  }, [battleLineActive]);
+
+  useEffect(
+    () => () => {
+      battleLineCleanupRef.current?.();
+      battleLineCleanupRef.current = null;
+    },
+    [],
+  );
+
   useEffect(() => stopPan, [stopPan]);
   useEffect(() => stopMarquee, [stopMarquee]);
 
@@ -256,6 +401,13 @@ export function ScenarioCanvas() {
       }
 
       if (event.key === 'Escape') {
+        if (battleLineActive) {
+          stopBattleLineStroke(false);
+          cancelBattleLine();
+          setBattleLineError(null);
+          setCursorWorld(null);
+          return;
+        }
         cancelPlacement();
         stopMarquee();
         selectUnits([]);
@@ -278,7 +430,15 @@ export function ScenarioCanvas() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [cancelPlacement, selectFeature, selectUnits, stopMarquee]);
+  }, [
+    battleLineActive,
+    cancelBattleLine,
+    cancelPlacement,
+    selectFeature,
+    selectUnits,
+    stopBattleLineStroke,
+    stopMarquee,
+  ]);
 
   const stagePointer = (): Point | null => {
     const stage = stageRef.current;
@@ -290,6 +450,13 @@ export function ScenarioCanvas() {
   const handleMouseDown = (event: Konva.KonvaEventObject<MouseEvent>): void => {
     const stage = event.target.getStage();
     const native = event.evt;
+
+    if (battleLineActive) {
+      if (native.button !== 0) return;
+      native.preventDefault();
+      beginBattleLineStroke(native.clientX, native.clientY);
+      return;
+    }
 
     if (placementUnitId) {
       if (native.button !== 0) return;
@@ -400,16 +567,60 @@ export function ScenarioCanvas() {
     }),
   );
 
+  const battleLineBrigadeCount = resolveBattleLineSelection(
+    scenario.orderOfBattle,
+    selectedUnitIds,
+    hiddenFactionIds,
+  ).brigadeIds.length;
+  const battleLineDraftPoints = battleLineActive ? battleLineDraft : [];
+  const battleLineMessage = battleLineActive ? battleLineError : null;
+  const battleLineTicks: BattleLineTick[] = [];
+  if (battleLineActive && battleLineDraft.length >= 2 && phase) {
+    const selection = resolveBattleLineSelection(
+      scenario.orderOfBattle,
+      selectedUnitIds,
+      hiddenFactionIds,
+    );
+    const layout = computeBattleLineLayout({
+      roster: scenario.orderOfBattle,
+      states: phase.unitStates,
+      brigadeIds: selection.brigadeIds,
+      points: battleLineDraft,
+      frontageByEchelon: defaultFrontageByEchelon,
+      dynamicFrontage,
+      explicitlySelectedUnitIds: selectedUnitIds,
+    });
+    if (layout.ok) {
+      const factionsById = new Map(
+        scenario.orderOfBattle.factions.map((faction) => [faction.id, faction] as const),
+      );
+      for (const unitId of layout.brigadeIds) {
+        const state = layout.states[unitId];
+        const unit = unitsById.get(unitId);
+        const faction = unit ? factionsById.get(unit.factionId) : undefined;
+        if (!state || !faction) continue;
+        battleLineTicks.push({
+          x: state.x,
+          y: state.y,
+          angle: (state.rotationDegrees * Math.PI) / 180,
+          color: faction.color,
+        });
+      }
+    }
+  }
+
   const paperBounds = currentCanvasBounds(scenario.terrainSnapshot);
-  const cursor = placementUnitId
+  const cursor = battleLineActive
     ? 'crosshair'
-    : panning
-      ? 'grabbing'
-      : spaceDown
-        ? 'grab'
-        : marqueeRect
-          ? 'crosshair'
-          : 'default';
+    : placementUnitId
+      ? 'crosshair'
+      : panning
+        ? 'grabbing'
+        : spaceDown
+          ? 'grab'
+          : marqueeRect
+            ? 'crosshair'
+            : 'default';
 
   return (
     <div
@@ -417,6 +628,11 @@ export function ScenarioCanvas() {
       data-testid="scenario-canvas"
       data-mode={mode}
       data-placement={placementUnitId ? 'true' : 'false'}
+      data-battle-line-active={battleLineActive ? 'true' : 'false'}
+      data-battle-line-brigade-count={battleLineBrigadeCount}
+      data-battle-line-draft-points={battleLineDraftPoints.length}
+      data-battle-line-error={battleLineMessage ?? ''}
+      data-last-battle-line-count={lastBattleLine?.unitIds.length ?? 0}
       data-deployed-count={deployedCount}
       data-visible-formations={visibleFormationCount}
       data-rectangle-formations={rectangleFormationCount}
@@ -496,7 +712,7 @@ export function ScenarioCanvas() {
               <ScenarioTerrainLayer
                 map={scenario.terrainSnapshot}
                 hiddenLayerIds={hiddenTerrainLayerIds}
-                interactive={mode === 'terrain' && placementUnitId === null}
+                interactive={mode === 'terrain' && placementUnitId === null && !battleLineActive}
                 selectedFeatureId={selectedFeatureId}
                 onSelectFeature={selectFeature}
               />
@@ -517,7 +733,7 @@ export function ScenarioCanvas() {
                 formationLabelFormats={formationLabelFormats}
                 uppercaseLabels={uppercaseFormationLabels}
                 dynamicFrontage={dynamicFrontage}
-                interactive={mode === 'units' && placementUnitId === null}
+                interactive={mode === 'units' && placementUnitId === null && !battleLineActive}
                 formationNodes={formationNodes}
                 labelNodes={labelNodes}
                 registerNode={registerFormationNode}
@@ -529,10 +745,50 @@ export function ScenarioCanvas() {
               nodeMap={formationNodes}
               nodeVersion={formationNodeVersion}
               selectedUnitIds={mode === 'units' ? selectedUnitIds : []}
-              enabled={mode === 'units' && placementUnitId === null}
+              enabled={mode === 'units' && placementUnitId === null && !battleLineActive}
               resizable={selectedUnitIds.length === 1 && selectedIsRectangle}
             />
           </Layer>
+
+          {battleLineDraftPoints.length > 1 ? (
+            <Layer listening={false}>
+              <Group
+                x={camera.offsetX}
+                y={camera.offsetY}
+                scaleX={camera.scale}
+                scaleY={camera.scale}
+              >
+                <Line
+                  points={flattenPoints(battleLineDraftPoints)}
+                  stroke="#3d5236"
+                  strokeWidth={2 / camera.scale}
+                  dash={[10 / camera.scale, 6 / camera.scale]}
+                  lineCap="round"
+                  lineJoin="round"
+                  opacity={0.9}
+                />
+                {battleLineTicks.map((tick, index) => {
+                  const offsetX = -Math.sin(tick.angle) * BATTLE_LINE_TICK_HALF_LENGTH;
+                  const offsetY = Math.cos(tick.angle) * BATTLE_LINE_TICK_HALF_LENGTH;
+                  return (
+                    <Line
+                      key={`${index}-${tick.x}-${tick.y}`}
+                      points={[
+                        tick.x - offsetX,
+                        tick.y - offsetY,
+                        tick.x + offsetX,
+                        tick.y + offsetY,
+                      ]}
+                      stroke={tick.color}
+                      strokeWidth={3 / camera.scale}
+                      lineCap="round"
+                      opacity={0.95}
+                    />
+                  );
+                })}
+              </Group>
+            </Layer>
+          ) : null}
 
           {marqueeRect ? (
             <Layer listening={false}>
@@ -558,16 +814,29 @@ export function ScenarioCanvas() {
             {cursorWorld ? `${Math.round(cursorWorld.x)}, ${Math.round(cursorWorld.y)}` : '—'}
           </span>
         </span>
-        <span className="rounded-md border border-[#cfc3a8] bg-[#f8f2e5]/90 px-2 py-1">
-          {placementUnitId
-            ? 'Click the map to deploy the selected formation · Esc cancels'
-            : mode === 'terrain'
-              ? 'Terrain snapshot · click a feature to inspect · drag empty canvas to pan'
-              : selectedUnitIds.length > 1
-                ? `${selectedUnitIds.length} formations selected · drag any to move · top handle rotates all`
-                : selectedUnitIds.length === 1
-                  ? 'Drag the formation · side handles resize frontage · top handle rotates'
-                  : 'Drag empty canvas to box-select · Shift-click adds · double-click a parent selects its command'}
+        <span
+          className={[
+            'rounded-md border px-2 py-1',
+            battleLineMessage
+              ? 'border-[#d3b3a8] bg-[#f9ede8] text-[#8b3a2f]'
+              : 'border-[#cfc3a8] bg-[#f8f2e5]/90',
+          ].join(' ')}
+        >
+          {battleLineMessage
+            ? battleLineMessage
+            : battleLineActive
+              ? battleLineDraftPoints.length > 1
+                ? 'Release to deploy the selected brigades · Esc cancels'
+                : 'Drag to draw the battle line · Esc cancels'
+              : placementUnitId
+                ? 'Click the map to deploy the selected formation · Esc cancels'
+                : mode === 'terrain'
+                  ? 'Terrain snapshot · click a feature to inspect · drag empty canvas to pan'
+                  : selectedUnitIds.length > 1
+                    ? `${selectedUnitIds.length} formations selected · drag any to move · top handle rotates all`
+                    : selectedUnitIds.length === 1
+                      ? 'Drag the formation · side handles resize frontage · top handle rotates'
+                      : 'Drag empty canvas to box-select · Shift-click adds · double-click a parent selects its command'}
         </span>
       </div>
     </div>

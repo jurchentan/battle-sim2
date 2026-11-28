@@ -384,25 +384,38 @@ describe('army roster store', () => {
     expect(restored?.customName).toBe(unit.customName);
   });
 
-  it('rejects deleting a formation that still has subordinates', () => {
+  it('cascades deletion through the descendant subtree in one undoable entry', () => {
     const before = useRosterStore.getState().document;
-    const result = useRosterStore.getState().deleteUnit('unit-north-division');
+    const pastBefore = useRosterStore.getState().past.length;
+    const subtree = [
+      'unit-north-division',
+      'unit-north-brigade-1',
+      'unit-north-brigade-2',
+      'unit-north-brigade-3',
+    ];
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('subordinate');
-    expect(useRosterStore.getState().document).toBe(before);
+    unwrap(useRosterStore.getState().deleteUnit('unit-north-division'));
+
+    const after = useRosterStore.getState().document;
+    expect(after.units.some((unit) => subtree.includes(unit.id))).toBe(false);
+    expect(after.units.find((unit) => unit.id === 'unit-north-corps')).toBeDefined();
+    expect(after.units).toHaveLength(before.units.length - subtree.length);
+    expect(armyRosterSchema.safeParse(after).success).toBe(true);
+    expect(useRosterStore.getState().past).toHaveLength(pastBefore + 1);
+
+    useRosterStore.getState().undo();
+    const restored = useRosterStore.getState().document;
+    expect(restored.units.map((unit) => unit.id)).toEqual(before.units.map((unit) => unit.id));
   });
 
-  it('deletes leaf units and reports their generated name when blocked', () => {
-    const leaf = unwrap(useRosterStore.getState().deleteUnit('unit-north-brigade-3'));
-    expect(leaf).toEqual({ ok: true });
+  it('deletes leaf units without touching their former parent', () => {
+    unwrap(useRosterStore.getState().deleteUnit('unit-north-brigade-3'));
     expect(
       useRosterStore.getState().document.units.some((unit) => unit.id === 'unit-north-brigade-3'),
     ).toBe(false);
-
-    const blocked = useRosterStore.getState().deleteUnit('unit-north-division');
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.error).toContain('Voss Division');
+    expect(
+      useRosterStore.getState().document.units.find((unit) => unit.id === 'unit-north-division'),
+    ).toBeDefined();
     expect(armyRosterSchema.safeParse(useRosterStore.getState().document).success).toBe(true);
   });
 

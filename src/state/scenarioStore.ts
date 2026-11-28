@@ -31,6 +31,7 @@ import {
   type FormationFrontages,
   type NewScenarioInput,
 } from '../features/scenario/scenarioDocuments';
+import { flippedRotation } from '../features/scenario/battleLine';
 
 const HISTORY_LIMIT = 100;
 
@@ -108,6 +109,8 @@ export interface ScenarioEditorStore {
   ) => ScenarioMutationResult;
   updateUnitState: (unitId: string, patch: Partial<UnitPhaseState>) => ScenarioMutationResult;
   updateUnitStates: (patches: Record<string, Partial<UnitPhaseState>>) => ScenarioMutationResult;
+  applyDeploymentStates: (states: Record<string, UnitPhaseState>) => ScenarioMutationResult;
+  flipUnitStates: (unitIds: readonly string[]) => ScenarioMutationResult;
   undeployUnit: (unitId: string) => ScenarioMutationResult;
   undeployUnits: (unitIds: readonly string[]) => ScenarioMutationResult;
   undo: () => void;
@@ -131,16 +134,21 @@ function normalizeUnitStatePatch(patch: Partial<UnitPhaseState>): Partial<UnitPh
  * Removes a unit from every phase and clears annotation links. Deleting the
  * unit and its phase footprint must happen in one history entry.
  */
-function cascadeDeletedUnit(document: BattleScenario, unitId: string): BattleScenario {
+function cascadeDeletedUnits(
+  document: BattleScenario,
+  deletedUnitIds: readonly string[],
+): BattleScenario {
+  const deleted = new Set(deletedUnitIds);
+
   return {
     ...document,
     phases: document.phases.map((phase) => {
       const unitStates = { ...phase.unitStates };
-      delete unitStates[unitId];
+      for (const unitId of deleted) delete unitStates[unitId];
 
       let annotationsChanged = false;
       const annotations = phase.annotations.map((annotation) => {
-        if (annotation.linkedUnitId !== unitId) return annotation;
+        if (!annotation.linkedUnitId || !deleted.has(annotation.linkedUnitId)) return annotation;
         annotationsChanged = true;
         const { linkedUnitId: _linkedUnitId, ...rest } = annotation;
         return rest;
@@ -283,7 +291,10 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
 
     const next = commit(
       state,
-      cascadeDeletedUnit(withOrderOfBattle(state.document, result.document), unitId),
+      cascadeDeletedUnits(
+        withOrderOfBattle(state.document, result.document),
+        result.deletedUnitIds,
+      ),
     );
     if (!next) return { ok: false, error: 'The unit could not be deleted.' };
     set(next);
@@ -410,6 +421,73 @@ export const useScenarioStore = create<ScenarioEditorStore>()((set, get) => ({
       }),
     );
     if (!next) return { ok: false, error: 'The selected formation states are not valid.' };
+
+    set(next);
+    return { ok: true };
+  },
+
+  applyDeploymentStates: (states) => {
+    const state = get();
+    const phase = activeScenarioPhase(state.document);
+    if (!phase) return { ok: false, error: 'The active phase could not be found.' };
+
+    const unitStates = Object.entries(states);
+    if (unitStates.length === 0) return { ok: true };
+
+    for (const [unitId] of unitStates) {
+      const unitExists = state.document.orderOfBattle.units.some((unit) => unit.id === unitId);
+      if (!unitExists)
+        return { ok: false, error: 'The battle line references an unknown formation.' };
+    }
+
+    const next = commit(
+      state,
+      replaceActivePhase(state.document, (activePhase) => {
+        return state.document.phases.map((candidate) =>
+          candidate.id === activePhase.id
+            ? {
+                ...candidate,
+                unitStates: { ...candidate.unitStates, ...states },
+              }
+            : candidate,
+        );
+      }),
+    );
+    if (!next) return { ok: false, error: 'The battle line produced an invalid formation state.' };
+
+    set(next);
+    return { ok: true };
+  },
+
+  flipUnitStates: (unitIds) => {
+    const state = get();
+    const phase = activeScenarioPhase(state.document);
+    if (!phase) return { ok: false, error: 'The active phase could not be found.' };
+
+    const deployedUnitIds = [...new Set(unitIds)].filter((unitId) => phase.unitStates[unitId]);
+    if (deployedUnitIds.length === 0) return { ok: true };
+
+    const nextStates: Record<string, UnitPhaseState> = {};
+    for (const unitId of deployedUnitIds) {
+      const current = phase.unitStates[unitId];
+      if (!current) continue;
+      nextStates[unitId] = {
+        ...current,
+        rotationDegrees: flippedRotation(current.rotationDegrees),
+      };
+    }
+
+    const next = commit(
+      state,
+      replaceActivePhase(state.document, (activePhase) => {
+        return state.document.phases.map((candidate) =>
+          candidate.id === activePhase.id
+            ? { ...candidate, unitStates: { ...candidate.unitStates, ...nextStates } }
+            : candidate,
+        );
+      }),
+    );
+    if (!next) return { ok: false, error: 'The flipped formation states are not valid.' };
 
     set(next);
     return { ok: true };

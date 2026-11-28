@@ -1,6 +1,6 @@
 # Architecture
 
-Status: M5.5 complete (scenario-owned orders of battle).
+Status: M5.6 complete (battle line deployment).
 Terrain editing supports area, path, symbol, and label tools, style controls,
 layer visibility/locking/z-order, object stacking and duplication, and
 simplified freehand drawing. The army workspace manages factions and hierarchical units
@@ -10,8 +10,9 @@ per-echelon default strengths, derived formation strength, and editable unit
 characteristics. Terrain and roster documents persist in IndexedDB with autosave,
 document management, and versioned JSON import/export. The scenario workspace
 creates map-only snapshot battles, owns an editable order of battle built or
-generated in the builder, deploys formations, and edits active-phase deployment
-state. Scenarios remain in memory until M7; phases and annotations arrive in M6.
+generated in the builder, deploys formations freehand or along a battle line, and
+edits active-phase deployment state. Scenarios remain in memory until M7; phases
+and annotations arrive in M6.
 
 ## 1. Stack and tooling
 
@@ -283,8 +284,9 @@ cloned in `src/models/seed.ts`.
   handle. Rotating it fires `transformend` on every selected node; the layer
   aggregates those patches in a microtask and commits one `updateUnitStates`
   entry. Resize anchors are only enabled for a single rectangle formation.
-  The inspector offers a bulk rotation field and bulk removal, and
-  Delete/Backspace undeploys the selection through `undeployUnits`.
+  The inspector offers a bulk rotation field, bulk frontage, and the shared
+  **Bulk actions** section, while Delete/Backspace undeploys the selection
+  through `undeployUnits`.
 - Scenario formations commit a single deployment edit on drag/transform end.
   Brigades render as filled rectangles; higher echelons render as text labels
   centered on the deployment point. Labels live in rotated groups so they turn
@@ -322,15 +324,51 @@ cloned in `src/models/seed.ts`.
   single global echelon row. Already-deployed subordinates keep their existing
   positions; their undeployed subordinates are promoted to the nearest new
   ancestor's layout.
+- The battle-line tool is a pure module in `features/scenario/battleLine.ts`.
+  `resolveBattleLineSelection` expands each selected formation to its visible
+  descendant brigades, groups them by nearest division ancestor, and orders both
+  groups and brigades by depth-first order of battle, so click order and hidden
+  factions do not affect the result. `computeBattleLineLayout` distributes the
+  drawn polyline's arc length proportionally to each brigade's rendered
+  frontage, places the brigade centre at its slot midpoint, and aligns it to the
+  local tangent. A line longer than the total frontage leaves gaps; a shorter
+  line overlaps the rectangles instead of failing. Existing states keep their
+  frontage, strength, status, label override, visibility, and notes; undeployed
+  brigades are seeded from `defaultUnitPhaseState` with the current default
+  frontage. Deployed command labels whose whole brigade group is included (or
+  which were explicitly selected) move behind their own brigade group at fixed
+  division/corps/army offsets of 120/240/360 world units and rotate to the group
+  average tangent. Drawing a line from a selected formation also deploys the
+  undeployed command labels inside that formation's tree, mirroring **Place on
+  map**; unrelated undeployed ancestors are never added.
+- The inspector's shared **Bulk actions** section appears for every formation
+  selection and holds **Flip 180°**, **Remove selected from map**, **Draw battle
+  line** (or **Cancel battle line** while armed), and **Place on map**. Flip and
+  remove act on every deployed selected formation; remove keeps the selection so
+  the formation can be placed again immediately. Place on map is enabled only for
+  a single undeployed formation and arms single-placement mode. Draw arms a
+  freehand stroke captured by `ScenarioCanvas`. Pointer moves append world-space
+  points after a small screen-space threshold, the finished stroke is simplified
+  with `simplifyPoints`, and the live preview draws the line plus faction-coloured
+  ticks at the planned centres. While armed, formation, terrain, marquee, and
+  single-placement interactions are disabled; Escape cancels the armed state or
+  an in-progress stroke. Applying the line upserts every brigade and recentred
+  command through `applyDeploymentStates` as one history entry and selects the
+  placed formations. `lastBattleLine` is transient metadata in
+  `scenarioEditorStore` and is cleared by a new line, toolbar or keyboard
+  undo/redo, and scenario reset; no annotation or document field is created.
+  `flipUnitStates` adds 180° in place to the selected deployed formations as one
+  entry, while bulk frontage uses `updateUnitStates`.
 - The left order-of-battle panel is the scenario's organization editor. It groups
   rows by faction and offers add faction, add unit, generate army, per-row
   add-subordinate, deploy/remove, and delete actions. Rows stay selectable,
   Shift-clickable, and hierarchy double-clickable like their map counterparts.
   Adding a unit selects it; adding alone does not deploy it. The unit form shows
   initial strength only for brigades and explains that higher formations roll up
-  from subordinates. Deleting a formation with subordinates is blocked; deleting
-  a deployed formation removes its state from every phase and clears annotation
-  links in one undo entry.
+  from subordinates. Deleting a formation with subordinates asks for
+  confirmation, then cascades through its entire descendant subtree; the action
+  removes every deleted unit's state from every phase and clears their
+  annotation links in one undo entry.
 - The generator is a pure module in `features/army/armyGenerator.ts`. It plans
   and validates the whole force before creating IDs, then appends one homogeneous
   faction army. Inputs are an existing or new faction, independent/division/
@@ -349,8 +387,8 @@ cloned in `src/models/seed.ts`.
 The Dexie database `battle-map-editor` is at schema version 4. It holds the
 `terrainMaps` and `armyRosters` tables, both indexed by `id`, `name`, and
 `updatedAt`. Version 3 briefly added a `unitPresets` table; version 4 drops it.
-Scenario documents live in memory in M5.5 and reset to the seeded demo on reload;
-a scenario table is added in M7 through another Dexie schema version.
+Scenario documents live in memory through M5.6 and reset to the seeded demo on
+reload; a scenario table is added in M7 through another Dexie schema version.
 `localStorage` stores only the IDs of the last open terrain map and army roster
 (UI preferences), never document contents.
 
@@ -429,7 +467,14 @@ map-only creation, OOB add/update/reparent/delete/cascade/undo, and atomic
 generator commits, schema tests for legacy `rosterSnapshot` and
 `regiment`/`other` migration, and Playwright coverage that creates a map-only
 scenario, generates two armies, deploys 20 brigades, and exercises the existing
-deployment and multi-selection flows against builder-owned OOBs.
+deployment and multi-selection flows against builder-owned OOBs. M5.6 adds pure
+module tests for selection resolution and grouping, proportional layout on
+straight and curved lines, command recentring, and flip normalization; scenario
+store tests for atomic deployment upserts, flips, bulk frontage, undo/redo, and
+no-op guards; editor-state tests for the transient line and scenario reset; and
+Playwright coverage for drawing division and cross-division lines, short-line
+overlap, command recentring, in-place flipping, bulk frontage, Escape
+cancellation, undo/redo clearing, and scenario reset.
 
 ## 8. Conventions
 

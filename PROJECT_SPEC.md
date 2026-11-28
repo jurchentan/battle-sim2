@@ -1,6 +1,6 @@
 # Battle Map Editor — Project Specification
 
-Status: M5.5 complete (scenario-owned orders of battle). Source of truth:
+Status: M5.6 complete (battle line deployment). Source of truth:
 `Readme.md` (engineering specification) plus `Info.md` (product vision). If
 documents disagree, `Readme.md` wins for implementation details. The terrain
 workspace supports area and path tools, symbols and labels, style editing, layer
@@ -12,12 +12,12 @@ fixed army/corps/division/brigade hierarchy with brigade as the smallest unit,
 per-echelon default strengths, derived strength roll-up, and its own IndexedDB
 library with autosave and versioned JSON import/export. The scenario workspace
 creates map-only snapshot battles, owns an editable order of battle built or
-generated directly in the scenario builder, deploys formations with
-drag/rotate/frontage/label editing, renders brigades as rectangles and higher
-echelons as configurable text labels, filters factions, removes formations
-directly with undo, and keeps terrain inspection separate from unit deployment.
-Scenario persistence, phase management, annotations, and exports remain scheduled
-for M6-M7.
+generated directly in the scenario builder, deploys formations freehand or along
+a drawn battle line, edits drag/rotate/frontage/label state, renders brigades as
+rectangles and higher echelons as configurable text labels, filters factions,
+removes formations directly with undo, and keeps terrain inspection separate
+from unit deployment. Scenario persistence, phase management, annotations, and
+exports remain scheduled for M6-M7.
 
 ## 1. Product summary
 
@@ -120,9 +120,9 @@ the order of battle is built or generated in the scenario builder.
   “{Scenario name} order of battle”. The map cannot be changed after creation.
 - Build the order of battle directly in the scenario builder: add and edit
   factions and units, create subordinates, reparent safely, and delete
-  formations. Deleting a formation is blocked while it has subordinates and
-  removes its state from every phase plus any annotation links in one undoable
-  edit.
+  formations. Deleting a formation with subordinates requires confirmation,
+  cascades through its whole descendant subtree, and removes every deleted
+  unit's state from every phase plus any annotation links in one undoable edit.
 - Generate an army semi-procedurally: choose an existing or new faction, a
   command structure (independent brigades, divisions, corps, or a single army),
   per-arm brigade counts, and either a rough average per brigade or an exact arm
@@ -147,8 +147,20 @@ the order of battle is built or generated in the scenario builder.
   or remove one, or double-click a parent to select its deployed command.
   Dragging any member moves the whole group, and the shared transformer handle
   rotates the group around its center.
-- Bulk rotation and removal in the inspector, plus Delete/Backspace on a
-  multi-selection, each commit as one undoable edit.
+- One inspector **Bulk actions** section holds Flip 180°, Remove selected from
+  map, Draw battle line, and Place on map for the current selection. Flip rotates
+  every deployed selected formation in place; remove keeps the selection so the
+  formation can be placed again; place is enabled for one undeployed formation.
+- Bulk rotation, bulk frontage, and Delete/Backspace on a multi-selection each
+  commit as one undoable edit.
+- Draw a freehand battle line from a selected formation or arbitrary brigades.
+  Each brigade's slot is proportional to its rendered frontage, so long lines
+  leave gaps and short lines overlap; same-division brigades stay contiguous in
+  order-of-battle order. Command labels whose whole brigade group is included
+  recenter behind that group. Drawing from a selected formation also deploys its
+  undeployed command labels, while unrelated undeployed ancestors are not added.
+- The drawn line is a transient guide only and is cleared by a new line,
+  undo/redo, or scenario reset.
 - Remove formations directly from the inspector or order of battle; removals are
   immediate and undoable.
 - Multiple phases: add, duplicate, rename, reorder, delete, activate.
@@ -168,8 +180,12 @@ separate terrain/unit modes.
 Milestone M5.5 replaced roster-snapshot creation with map-only scenario creation
 and a scenario-owned editable order of battle, reduced the model to four
 echelons with brigade always smallest, added safe legacy migration, and added the
-semi-procedural army generator. Phase management and annotations follow in M6;
-scenario persistence and export follow in M7.
+semi-procedural army generator. Milestone M5.6 added freehand battle-line
+deployment with division-contiguous ordering, frontage-proportional spacing and
+overlap, deployed-command recentring, in-place flipping through the inspector's
+shared Bulk actions section (Flip 180°, Remove selected from map, Draw battle
+line, and Place on map), and bulk frontage. Phase management and annotations
+follow in M6; scenario persistence and export follow in M7.
 
 ### Persistence and export
 
@@ -192,7 +208,7 @@ scenario persistence and export follow in M7.
 
 ### Possible later work (unscheduled)
 
-- A temporary per-phase battle-line tool for directions, attacks, retreats, and
+- Saved per-phase battle-line annotations for directions, attacks, retreats, and
   other tactical marks.
 - Phase-to-phase animation that plays the battle as a continuous sequence.
 - Branching timelines for exploring alternate versions of the same battle.
@@ -209,7 +225,8 @@ A user can:
 4. Save and reopen reusable army rosters.
 5. Create a battle scenario from a saved terrain map, then build or generate its
    order of battle in the scenario builder.
-6. Deploy, drag, rotate, resize, and label unit symbols.
+6. Deploy formations singly or along a drawn battle line, then drag, rotate,
+   resize frontage, and label unit symbols.
 7. Duplicate a phase and alter positions, strengths, statuses, labels, and
    phase-specific arrows without changing earlier phases.
 8. Toggle layers and phases.

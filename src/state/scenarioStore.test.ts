@@ -484,10 +484,6 @@ describe('scenario store', () => {
     expect(blockedFactionDelete.ok).toBe(false);
     if (!blockedFactionDelete.ok) expect(blockedFactionDelete.error).toContain('units');
 
-    const blockedArmyDelete = useScenarioStore.getState().deleteUnit(army.id);
-    expect(blockedArmyDelete.ok).toBe(false);
-    if (!blockedArmyDelete.ok) expect(blockedArmyDelete.error).toContain('subordinate');
-
     unwrap(useScenarioStore.getState().deleteUnit(brigade.id));
     expect(
       useScenarioStore
@@ -502,24 +498,53 @@ describe('scenario store', () => {
         .getState()
         .document.orderOfBattle.units.some((unit) => unit.id === brigade.id),
     ).toBe(true);
+
+    const subtreeIds = [army.id, firstDivision.id, secondDivision.id, brigade.id];
+    unwrap(useScenarioStore.getState().deleteUnit(army.id));
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.some((unit) => subtreeIds.includes(unit.id)),
+    ).toBe(false);
+    expect(useScenarioStore.getState().past).toHaveLength(8);
+
+    useScenarioStore.getState().undo();
+    expect(
+      useScenarioStore
+        .getState()
+        .document.orderOfBattle.units.filter((unit) => subtreeIds.includes(unit.id)),
+    ).toHaveLength(subtreeIds.length);
   });
 
-  it('cascades formation deletion through every phase and annotation link', () => {
+  it('cascades parent deletion through every phase and annotation link', () => {
     const before = useScenarioStore.getState().document;
+    const subtreeIds = [
+      'unit-north-division',
+      'unit-north-brigade-1',
+      'unit-north-brigade-2',
+      'unit-north-brigade-3',
+    ];
+    const stateUnitIds = ['unit-north-brigade-1', 'unit-north-brigade-2', 'unit-north-brigade-3'];
     expect(before.phases).toHaveLength(2);
-    expect(before.phases[0]?.unitStates['unit-north-brigade-2']).toBeDefined();
-    expect(before.phases[1]?.unitStates['unit-north-brigade-2']).toBeDefined();
+    for (const unitId of stateUnitIds) {
+      expect(before.phases[0]?.unitStates[unitId]).toBeDefined();
+      expect(before.phases[1]?.unitStates[unitId]).toBeDefined();
+    }
     expect(
       before.phases[1]?.annotations.find(
         (annotation) => annotation.id === 'annotation-north-counter',
       )?.linkedUnitId,
     ).toBe('unit-north-brigade-2');
 
-    unwrap(useScenarioStore.getState().deleteUnit('unit-north-brigade-2'));
+    unwrap(useScenarioStore.getState().deleteUnit('unit-north-division'));
 
     const document = useScenarioStore.getState().document;
-    expect(document.phases[0]?.unitStates['unit-north-brigade-2']).toBeUndefined();
-    expect(document.phases[1]?.unitStates['unit-north-brigade-2']).toBeUndefined();
+    expect(document.orderOfBattle.units.some((unit) => subtreeIds.includes(unit.id))).toBe(false);
+    for (const phase of document.phases) {
+      for (const unitId of stateUnitIds) {
+        expect(phase.unitStates[unitId]).toBeUndefined();
+      }
+    }
     expect(
       document.phases[1]?.annotations.find(
         (annotation) => annotation.id === 'annotation-north-counter',
@@ -530,8 +555,14 @@ describe('scenario store', () => {
 
     useScenarioStore.getState().undo();
     const restored = useScenarioStore.getState().document;
-    expect(restored.phases[0]?.unitStates['unit-north-brigade-2']).toBeDefined();
-    expect(restored.phases[1]?.unitStates['unit-north-brigade-2']).toBeDefined();
+    expect(
+      restored.orderOfBattle.units.filter((unit) => subtreeIds.includes(unit.id)),
+    ).toHaveLength(subtreeIds.length);
+    for (const phase of restored.phases) {
+      for (const unitId of stateUnitIds) {
+        expect(phase.unitStates[unitId]).toBeDefined();
+      }
+    }
     expect(
       restored.phases[1]?.annotations.find(
         (annotation) => annotation.id === 'annotation-north-counter',
@@ -542,10 +573,6 @@ describe('scenario store', () => {
     expect(
       useScenarioStore.getState().document.phases[0]?.unitStates['unit-north-brigade-2'],
     ).toBeUndefined();
-
-    const blocked = useScenarioStore.getState().deleteUnit('unit-north-division');
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.error).toContain('subordinate');
   });
 
   it('commits a generated army as a single history entry', () => {
@@ -603,5 +630,139 @@ describe('scenario store', () => {
 
     useScenarioStore.getState().redo();
     expect(useScenarioStore.getState().document.orderOfBattle.units).toHaveLength(13);
+  });
+
+  it('upserts battle line deployment states in one undoable history entry', () => {
+    const before = useScenarioStore.getState().document;
+    const originalTerrain = structuredClone(before.terrainSnapshot);
+    const otherPhase = structuredClone(before.phases[1]);
+    const pastBefore = useScenarioStore.getState().past.length;
+    const brigade = activeState()?.unitStates['unit-north-brigade-1'];
+    if (!brigade) throw new Error('The seed brigade is not deployed');
+
+    const commandState = {
+      ...structuredClone(brigade),
+      x: 150,
+      y: 320,
+      rotationDegrees: 0,
+    };
+    unwrap(
+      useScenarioStore.getState().applyDeploymentStates({
+        'unit-north-brigade-1': {
+          ...structuredClone(brigade),
+          x: 100,
+          y: 200,
+          rotationDegrees: 45,
+        },
+        'unit-north-division': commandState,
+      }),
+    );
+
+    expect(activeState()?.unitStates['unit-north-brigade-1']).toMatchObject({
+      x: 100,
+      y: 200,
+      rotationDegrees: 45,
+    });
+    expect(activeState()?.unitStates['unit-north-division']).toEqual(commandState);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore + 1);
+    expect(useScenarioStore.getState().document.terrainSnapshot).toEqual(originalTerrain);
+    expect(useScenarioStore.getState().document.phases[1]).toEqual(otherPhase);
+
+    useScenarioStore.getState().undo();
+    expect(activeState()?.unitStates['unit-north-brigade-1']).toMatchObject({
+      x: brigade.x,
+      y: brigade.y,
+      rotationDegrees: brigade.rotationDegrees,
+    });
+    expect(activeState()?.unitStates['unit-north-division']).toBeUndefined();
+
+    useScenarioStore.getState().redo();
+    expect(activeState()?.unitStates['unit-north-brigade-1']?.x).toBe(100);
+    expect(activeState()?.unitStates['unit-north-division']?.y).toBe(320);
+  });
+
+  it('rejects invalid or unknown deployment states atomically', () => {
+    const brigade = activeState()?.unitStates['unit-north-brigade-1'];
+    if (!brigade) throw new Error('The seed brigade is not deployed');
+    const before = useScenarioStore.getState().document;
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    const invalid = useScenarioStore.getState().applyDeploymentStates({
+      'unit-north-brigade-1': { ...structuredClone(brigade), frontageLength: 0 },
+    });
+    expect(invalid.ok).toBe(false);
+    expect(useScenarioStore.getState().document).toBe(before);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore);
+
+    const unknown = useScenarioStore.getState().applyDeploymentStates({
+      'missing-unit': structuredClone(brigade),
+    });
+    expect(unknown).toEqual({
+      ok: false,
+      error: 'The battle line references an unknown formation.',
+    });
+    expect(useScenarioStore.getState().document).toBe(before);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore);
+  });
+
+  it('flips deployed formation rotations in place as one undoable entry', () => {
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    unwrap(
+      useScenarioStore
+        .getState()
+        .flipUnitStates(['unit-north-brigade-2', 'unit-south-brigade-1', 'missing-unit']),
+    );
+
+    expect(activeState()?.unitStates['unit-north-brigade-2']).toMatchObject({
+      x: 880,
+      y: 560,
+      rotationDegrees: 172,
+    });
+    expect(activeState()?.unitStates['unit-south-brigade-1']).toMatchObject({
+      x: 1050,
+      y: 820,
+      rotationDegrees: 0,
+    });
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore + 1);
+
+    useScenarioStore.getState().undo();
+    expect(activeState()?.unitStates['unit-north-brigade-2']?.rotationDegrees).toBe(-8);
+    expect(activeState()?.unitStates['unit-south-brigade-1']?.rotationDegrees).toBe(180);
+
+    useScenarioStore.getState().redo();
+    expect(activeState()?.unitStates['unit-north-brigade-2']?.rotationDegrees).toBe(172);
+  });
+
+  it('skips flipping when none of the formations are deployed', () => {
+    const before = useScenarioStore.getState().document;
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    expect(
+      useScenarioStore
+        .getState()
+        .flipUnitStates(['unit-north-corps', 'unit-north-division', 'missing-unit']),
+    ).toEqual({ ok: true });
+    expect(useScenarioStore.getState().document).toBe(before);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore);
+  });
+
+  it('sets bulk frontage for the selected formations in one undoable entry', () => {
+    const pastBefore = useScenarioStore.getState().past.length;
+
+    unwrap(
+      useScenarioStore.getState().updateUnitStates({
+        'unit-north-brigade-1': { frontageLength: 175 },
+        'unit-north-brigade-2': { frontageLength: 150 },
+      }),
+    );
+
+    expect(activeState()?.unitStates['unit-north-brigade-1']?.frontageLength).toBe(175);
+    expect(activeState()?.unitStates['unit-north-brigade-2']?.frontageLength).toBe(150);
+    expect(useScenarioStore.getState().past).toHaveLength(pastBefore + 1);
+
+    useScenarioStore.getState().undo();
+    expect(activeState()?.unitStates['unit-north-brigade-1']?.frontageLength).toBe(120);
+    expect(activeState()?.unitStates['unit-north-brigade-2']?.frontageLength).toBe(100);
   });
 });

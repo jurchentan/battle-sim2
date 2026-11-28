@@ -240,3 +240,22 @@ test('uses per-echelon naming and faction-specific default strengths', async ({ 
   await page.getByRole('button', { name: 'Select unit 4th Brigade' }).click();
   await expect(page.getByTestId('unit-editor').getByLabel('Initial strength')).toHaveValue('2000');
 });
+
+test('cascades a parent deletion after confirmation and restores it with undo', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await openArmyWorkspace(page);
+
+  await page.getByRole('button', { name: 'Select unit Voss Division' }).click();
+  await page.getByRole('button', { name: 'Delete unit' }).click();
+  await expect(page.getByTestId('delete-unit-warning')).toContainText('3 subordinate units');
+  await page.getByRole('button', { name: 'Confirm cascade delete' }).click();
+
+  await expect(page.getByRole('button', { name: 'Select unit Voss Division' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Select unit 1st Brigade' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Select unit Voss Division' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Select unit 1st Brigade' })).toBeVisible();
+});

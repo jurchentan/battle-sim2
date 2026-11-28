@@ -5,6 +5,7 @@ import { isTypingTarget } from '../terrain/useEditorShortcuts';
 
 export function useScenarioShortcuts(): void {
   const selectedUnitIds = useScenarioEditorStore((state) => state.selectedUnitIds);
+  const clearLastBattleLine = useScenarioEditorStore((state) => state.clearLastBattleLine);
   const undo = useScenarioStore((state) => state.undo);
   const redo = useScenarioStore((state) => state.redo);
 
@@ -22,12 +23,14 @@ export function useScenarioShortcuts(): void {
         } else {
           undo();
         }
+        clearLastBattleLine();
         return;
       }
 
       if (meta && key === 'y') {
         event.preventDefault();
         redo();
+        clearLastBattleLine();
         return;
       }
 
@@ -46,5 +49,5 @@ export function useScenarioShortcuts(): void {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [redo, selectedUnitIds, undo]);
+  }, [clearLastBattleLine, redo, selectedUnitIds, undo]);
 }

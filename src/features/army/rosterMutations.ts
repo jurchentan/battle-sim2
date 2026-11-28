@@ -17,6 +17,7 @@ import {
   canHaveSubordinates,
   defaultSymbolStyle,
   defaultUnitStrength,
+  descendantUnitIds,
   ECHELON_LABELS,
   echelonHierarchyError,
   findUnit,
@@ -50,6 +51,9 @@ export interface NewUnitInput {
 export type UnitPatch = Partial<Omit<UnitDefinition, 'id'>>;
 
 export type RosterMutation = { ok: true; document: ArmyRoster } | { ok: false; error: string };
+
+export type RosterDeleteMutation =
+  { ok: true; document: ArmyRoster; deletedUnitIds: string[] } | { ok: false; error: string };
 
 export type RosterCreateMutation =
   { ok: true; document: ArmyRoster; id: string } | { ok: false; error: string };
@@ -281,23 +285,18 @@ export function reparentUnit(
   return updateUnit(document, unitId, { parentUnitId });
 }
 
-export function deleteUnit(document: ArmyRoster, unitId: string): RosterMutation {
+export function deleteUnit(document: ArmyRoster, unitId: string): RosterDeleteMutation {
   const unit = findUnit(document, unitId);
   if (!unit) return { ok: false, error: 'The unit could not be found.' };
 
-  const children = document.units.filter((candidate) => candidate.parentUnitId === unitId);
-  if (children.length > 0) {
-    return {
-      ok: false,
-      error: `Reparent or delete the ${children.length} subordinate unit${
-        children.length === 1 ? '' : 's'
-      } before deleting ${unitDisplayName(document, unit)}.`,
-    };
-  }
-
-  return finish({
+  const deletedUnitIds = [unit.id, ...descendantUnitIds(document, unit.id)];
+  const deleted = new Set(deletedUnitIds);
+  const next: ArmyRoster = {
     ...document,
-    units: document.units.filter((candidate) => candidate.id !== unitId),
+    units: document.units.filter((candidate) => !deleted.has(candidate.id)),
     updatedAt: timestamp(),
-  });
+  };
+
+  const error = rosterSchemaError(next);
+  return error ? { ok: false, error } : { ok: true, document: next, deletedUnitIds };
 }

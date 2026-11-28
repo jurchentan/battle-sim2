@@ -40,6 +40,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
   const canRedo = useScenarioStore((state) => state.future.length > 0);
   const undo = useScenarioStore((state) => state.undo);
   const redo = useScenarioStore((state) => state.redo);
+  const clearLastBattleLine = useScenarioEditorStore((state) => state.clearLastBattleLine);
   const scale = useCameraStore((state) => state.camera.scale);
   const zoomByStep = useCameraStore((state) => state.zoomByStep);
   const fit = useCameraStore((state) => state.fit);
@@ -47,6 +48,15 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
   const phase = activeScenarioPhase(scenario);
   const deployedCount = phase ? Object.keys(phase.unitStates).length : 0;
   const terrainFeatures = scenario.terrainSnapshot.features.length;
+
+  const handleUndo = (): void => {
+    undo();
+    clearLastBattleLine();
+  };
+  const handleRedo = (): void => {
+    redo();
+    clearLastBattleLine();
+  };
 
   return (
     <div className="border-b border-[#d8cdb5] bg-[#f6efe0]">
@@ -119,6 +129,8 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
             </button>
           </div>
 
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-[#d8cdb5]" />
+
           <button
             type="button"
             className={buttonClass}
@@ -138,7 +150,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
           <button
             type="button"
             className={buttonClass}
-            onClick={undo}
+            onClick={handleUndo}
             disabled={!canUndo}
             title="Undo (Ctrl/Cmd+Z)"
             aria-label="Undo"
@@ -148,7 +160,7 @@ export function ScenarioToolbar({ scenario }: { scenario: BattleScenario }) {
           <button
             type="button"
             className={buttonClass}
-            onClick={redo}
+            onClick={handleRedo}
             disabled={!canRedo}
             title="Redo (Ctrl/Cmd+Shift+Z)"
             aria-label="Redo"

@@ -10,6 +10,7 @@ import {
   type FormationLabelFormat,
   type FormationLabelFormats,
 } from '../features/scenario/scenarioDocuments';
+import type { BattleLineMetadata } from '../features/scenario/battleLine';
 
 export type ScenarioMode = 'terrain' | 'units';
 
@@ -20,6 +21,8 @@ interface ScenarioEditorState {
   hiddenFactionIds: string[];
   hiddenTerrainLayerIds: string[];
   placementUnitId: string | null;
+  battleLineActive: boolean;
+  lastBattleLine: BattleLineMetadata | null;
   formationFontSizes: FormationFontSizes;
   formationLabelFormats: FormationLabelFormats;
   defaultFrontageByEchelon: FormationFrontages;
@@ -33,6 +36,10 @@ interface ScenarioEditorState {
   selectFeature: (featureId: string | null) => void;
   beginPlacement: (unitId: string) => void;
   cancelPlacement: () => void;
+  beginBattleLine: () => void;
+  cancelBattleLine: () => void;
+  setLastBattleLine: (line: BattleLineMetadata) => void;
+  clearLastBattleLine: () => void;
   toggleFactionVisible: (factionId: string) => void;
   toggleTerrainLayerVisible: (layerId: string) => void;
   setFormationFontSize: (echelon: UnitEchelon, size: number) => void;
@@ -55,6 +62,8 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
   hiddenFactionIds: [],
   hiddenTerrainLayerIds: [],
   placementUnitId: null,
+  battleLineActive: false,
+  lastBattleLine: null,
   formationFontSizes: { ...DEFAULT_FORMATION_FONT_SIZES },
   formationLabelFormats: { ...DEFAULT_FORMATION_LABEL_FORMATS },
   defaultFrontageByEchelon: { ...DEFAULT_FRONTAGE_BY_ECHELON },
@@ -67,6 +76,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
       selectedUnitIds: [],
       selectedFeatureId: null,
       placementUnitId: null,
+      battleLineActive: false,
     }),
 
   selectUnit: (unitId) =>
@@ -125,6 +135,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
       selectedFeatureId,
       selectedUnitIds: [],
       placementUnitId: null,
+      battleLineActive: false,
       mode: selectedFeatureId === null ? state.mode : 'terrain',
     })),
 
@@ -134,9 +145,24 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
       selectedUnitIds: [unitId],
       selectedFeatureId: null,
       placementUnitId: unitId,
+      battleLineActive: false,
     }),
 
   cancelPlacement: () => set({ placementUnitId: null }),
+
+  beginBattleLine: () =>
+    set({
+      mode: 'units',
+      selectedFeatureId: null,
+      placementUnitId: null,
+      battleLineActive: true,
+    }),
+
+  cancelBattleLine: () => set({ battleLineActive: false }),
+
+  setLastBattleLine: (lastBattleLine) => set({ lastBattleLine, battleLineActive: false }),
+
+  clearLastBattleLine: () => set({ lastBattleLine: null }),
 
   toggleFactionVisible: (factionId) =>
     set((state) => ({
@@ -200,5 +226,7 @@ export const useScenarioEditorStore = create<ScenarioEditorState>()((set) => ({
       hiddenFactionIds: [],
       hiddenTerrainLayerIds: [],
       placementUnitId: null,
+      battleLineActive: false,
+      lastBattleLine: null,
     }),
 }));

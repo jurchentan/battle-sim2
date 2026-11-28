@@ -122,6 +122,24 @@ Gate: create a map-only scenario, build and generate its OOB in the builder,
 deploy at least 20 generated brigades, and verify legacy documents migrate; all
 checks pass.
 
+## M5.6 — Battle line deployment tool (complete)
+
+- [x] Draw a freehand battle line from a selected formation or arbitrary brigades, including brigades from different divisions
+- [x] Deploy undeployed brigades and reposition deployed brigades in one action; same-division brigades stay contiguous in order-of-battle order
+- [x] Proportional rendered-frontage layout with gaps on long lines and overlap on short lines; local tangents on curved lines
+- [x] Recenter command labels behind fully included brigade groups at fixed echelon offsets; deploy the selected formation's own command labels while leaving unrelated undeployed ancestors off the map
+- [x] Flip every deployed selected formation 180° in place as one undo entry
+- [x] Keep Flip 180°, Remove selected from map, Draw battle line, and Place on map together in one inspector Bulk actions section; Place on map is enabled for a single undeployed formation
+- [x] Cascade-delete a formation with its whole descendant subtree after confirmation, removing every deleted unit's phase states and annotation links in one undo entry
+- [x] Bulk frontage and general Flip 180° for a multi-selection, each one undo entry
+- [x] Clear the transient battle line on a new line, undo/redo, and scenario reset
+- [x] Pure module, store, editor-state, canvas, toolbar, inspector, unit, and Playwright coverage
+
+Gate: draw a division and a cross-division brigade selection; verify contiguity,
+short-line overlap, command recentring, in-place flip, single-entry undo/redo for
+every action, cascade parent deletion with confirmation, the inspector Bulk
+actions section, and that terrain, the OOB, and other phases are untouched.
+
 ## M6 — Battle phases
 
 - [ ] Add, duplicate, rename, reorder, delete phases; timeline

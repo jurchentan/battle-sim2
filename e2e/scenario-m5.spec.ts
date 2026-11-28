@@ -172,14 +172,14 @@ test('deploys 20 generated brigades, edits formations, filters factions, and iso
   await expect(page.getByTestId('selected-unit-label')).toHaveText('Gate Vanguard');
 
   // Inspector removal is immediate and undoable; no confirmation step remains.
-  await page.getByTestId('remove-unit-from-map').click();
+  await page.getByTestId('remove-selected-units').click();
   await expect(canvas).toHaveAttribute('data-deployed-count', '19');
   await expect(canvas).toHaveAttribute('data-visible-formations', '19');
-  await expect(page.getByRole('button', { name: 'Place on map', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Place on map', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(canvas).toHaveAttribute('data-deployed-count', '20');
   await expect(canvas).toHaveAttribute('data-visible-formations', '20');
-  await expect(page.getByTestId('remove-unit-from-map')).toBeVisible();
+  await expect(page.getByTestId('remove-selected-units')).toBeEnabled();
 
   // The order of battle swaps Deploy for a direct Remove action.
   const oobRemove = alphaSection.getByRole('button', {

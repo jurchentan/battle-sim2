@@ -1,107 +1,134 @@
-# Handoff — M5.5 scenario-owned orders of battle (complete)
+# Handoff — M5.6 battle line deployment tool (complete)
 
-Date: 2026-11-25
+Date: 2026-11-28
 Branch: `main`
-Milestone: M5.5 scenario-owned orders of battle.
+Milestone: M5.6 battle line deployment tool, plus cascade deletion and consolidated
+inspector bulk actions.
 
 ## Status
 
-M5.5 is complete and ready to close. The next scheduled milestone is M6 (battle
+M5.6 is complete and ready to close. The next scheduled milestone is M6 (battle
 phases).
 
 ## Feature summary
 
-- `BattleScenario` now owns an `orderOfBattle: ArmyRoster` instead of a
-  `rosterSnapshot`. Legacy scenarios preprocess `rosterSnapshot` into
-  `orderOfBattle` during validation.
-- Scenario creation is map-only. A new scenario receives a deep terrain snapshot
-  and an empty OOB named “{Scenario name} order of battle”; rosters are never
-  loaded automatically.
-- The scenario builder has an editable order-of-battle panel with add faction,
-  add unit, add subordinate, generate army, deploy/remove, and delete actions.
-  Rows support selection, Shift-click, and hierarchy double-click like the map.
-- Scenario faction and unit dialogs reuse the shared faction form and support
-  safe reparenting, generated or custom names, commanders, notes, symbol style,
-  and brigade strength. Higher formations explain that strength rolls up.
-- Deleting a formation is blocked while it has subordinates. Deployed deletion
-  removes its state from every phase and clears annotation links in one undo
-  entry.
-- Supported echelons are now `army | corps | division | brigade` only, with
-  brigade always the smallest unit. `smallestUnitEchelon` is forced to
-  `brigade`; the setting is gone from the UI. `unitType: 'other'` remains valid.
-- Legacy `regiment` and `other` echelons migrate to brigades. Migrated units
-  that would sit at or above their parent are lifted to the nearest valid
-  ancestor or made roots. Unsupported naming-mode and strength keys are dropped.
-  Migrated roster library documents persist automatically and show a notice.
-- The semi-procedural army generator (`features/army/armyGenerator.ts`) supports
-  independent brigades, divisions, corps, and a single army; per-arm brigade
-  counts; rough-average or exact-total strengths; homogeneous formations;
-  remainder handling; zero-count arms; existing or new factions; and preview
-  totals. It appends one army as a single undo entry and does not auto-deploy.
-- Shared roster mutations live in `features/army/rosterMutations.ts` and serve
-  both the roster and scenario stores.
-- The Army Roster workspace remains an optional reusable template library, with
-  unsupported echelon and smallest-unit controls removed.
-- Deploying a parent now bulk-selects the parent and every descendant that was
-  just deployed, matching the existing hierarchy double-click selection.
-- Automatic deployment uses a tidy-tree layout: children sit side by side in
-  front of their own parent, and every higher formation is centered behind its
-  own children rather than sharing one global echelon row.
-- New formations deploy at 180° so their label sits below the rectangle with the
-  blank edge facing up; label text still flips upright automatically.
-- The seed demo scenario keeps its populated two-phase order of battle.
+- A new pure module, `features/scenario/battleLine.ts`, owns battle-line
+  resolution and math. `resolveBattleLineSelection` expands selected formations
+  to their visible descendant brigades, groups them by nearest division ancestor,
+  and orders groups and brigades by depth-first order of battle.
+- `computeBattleLineLayout` distributes the polyline's arc length proportionally
+  to rendered frontage, places each brigade centre at its slot midpoint, and
+  aligns it to the local tangent. Long lines leave gaps; short lines overlap
+  instead of being rejected.
+- Existing brigade states keep frontage, strength, status, label override,
+  visibility, and notes while position and rotation change. Undeployed brigades
+  are seeded from `defaultUnitPhaseState` with the current default frontage.
+- Command labels whose whole brigade group is included, or which were
+  explicitly selected, sit behind their own brigade group at fixed
+  division/corps/army offsets of 120/240/360 world units and rotate to the group
+  average tangent. Commands inside the selected formation tree deploy when
+  needed; unrelated undeployed ancestors are never added.
+- The inspector shows one shared **Bulk actions** section for every formation
+  selection. It contains **Flip 180°**, **Remove selected from map**, **Draw
+  battle line** (or **Cancel battle line** while armed), and **Place on map**.
+  The former toolbar Bulk actions menu and the separate contextual Draw shortcut
+  are gone.
+- Flip and Remove act on every deployed selected formation. Remove no longer
+  clears the selection, so the same formation can be placed again immediately.
+- Place on map is enabled only for a single undeployed formation; it is disabled
+  with an explanatory tooltip for multi-selections and already-deployed
+  formations.
+- Draw is available whenever the selection resolves to at least one brigade and
+  stays enabled while armed so it can cancel.
+- Deleting a formation now deletes its whole descendant subtree after an
+  explicit confirmation that names the subordinate count. Scenario deletion
+  removes every deleted unit's state from all phases and clears linked
+  annotations in the same single undo entry. The roster editor uses the same
+  cascade behavior with its existing confirmation.
+- `ScenarioCanvas` captures the freehand stroke with a screen-space sampling
+  threshold, simplifies it with `simplifyPoints`, and previews the line plus
+  faction-coloured ticks at planned centres. Formation, terrain, marquee, and
+  single-placement interactions are locked while armed. Escape cancels the armed
+  tool or an in-progress stroke without touching the document.
+- Applying a line upserts brigade and command states through
+  `applyDeploymentStates` as one history entry, stores transient `lastBattleLine`
+  metadata, selects the placed formations, and leaves the tool.
+- **Flip 180°** calls `flipUnitStates`, adding 180° in place to every deployed
+  selected formation as one undo entry. Positions and order do not change.
+- The multi-selection inspector also offers **Frontage (all selected)** through
+  `updateUnitStates`; bulk frontage changes stored width only and does not
+  re-space the line.
+- The line is transient metadata in `scenarioEditorStore`, not a document field
+  or annotation. It is cleared by a new line, toolbar or keyboard undo/redo, and
+  scenario reset.
+- No schema changes or migrations were needed.
 
 ## Verification (all passing)
 
 ```bash
 npm run typecheck
 npm run lint               # one non-fatal Fast Refresh warning in FactionForm.tsx
-npm run test               # 19 files, 190 tests
+npm run test               # 20 files, 225 tests
 npx prettier --check .
 npm run build              # Vite chunk-size warning only
-npx playwright test        # 31 tests
+npx playwright test        # 37 tests
 ```
 
 New coverage includes:
 
-- `armyGenerator.test.ts` — independent brigades, divisions with remainders,
-  corps, army roots, average/exact strengths, zero arms, invalid plans, existing
-  and new factions, immutability.
-- `scenarioStore.test.ts` — map-only creation, OOB add/update/reparent/delete,
-  cross-phase deletion cascade, annotation cleanup, undo/redo, atomic generator
-  commit, and rejection without document changes.
-- `scenarioDocuments.test.ts` and `schemas.test.ts` — empty OOB creation, legacy
-  `rosterSnapshot` migration, legacy echelon normalization, 180° default
-  deployment rotation, and hierarchy-relative layout with separate division
-  branches.
-- `scenario-m5.spec.ts` — map-only scenario creation, generating two armies,
-  deploying 20 generated brigades, parent-deployment bulk selection, and the
-  existing deployment, multi-selection, label, faction-filter, rotation, and
-  undo flows against builder-owned OOBs.
-- `army-roster-tools.spec.ts` — subordinate creation from a supported parent and
-  brigade strength roll-up, with the smallest-unit control confirmed absent.
+- `battleLine.test.ts` — division/corps/army resolution, cross-division grouping,
+  deduplication, order-of-battle ordering, hidden-faction filtering, straight
+  and curved proportional layout, long-line gaps, short-line overlap, dynamic
+  frontage, existing-state preservation, default deployment states, selected
+  command deployment, command recentring, partial-group guards, nested offsets,
+  and flip normalization.
+- `rosterStore.test.ts` and `scenarioStore.test.ts` — cascade subtree deletion,
+  phase-state and annotation-link cleanup, single-entry undo/redo, bulk
+  deployment upserts, in-place flips, bulk frontage, and no-op guards.
+- `scenarioEditorStore.test.ts` — arming/cancelling the line, last-line storage
+  and clearing, placement hand-off, and scenario reset.
+- `scenario-m5.6.spec.ts` — division line drawing with command recentring,
+  selected-corps command deployment without an undeployed army,
+  arbitrary cross-division brigades on a deliberately short overlapping line,
+  the shared inspector Bulk actions section, Place on map for a single
+  undeployed formation, cascading parent deletion with confirmation and
+  one-step undo, bulk frontage and Flip 180°, Escape cancellation, and reset
+  clearing.
+- `army-roster-tools.spec.ts` — roster-side cascade deletion confirmation and
+  one-step undo, alongside the existing hierarchy and strength flows.
 
 ## Documentation updated
 
-- `M5.5_PLAN.md` — marked implemented.
-- `TASKS.md` — M5.5 checklist and gate; corrected M4/M5 entries.
-- `ARCHITECTURE.md` — scenario-owned OOB, four-echelon model and migration,
-  builder/generator behavior, store actions, persistence note, and test coverage.
-- `PROJECT_SPEC.md` — map-only creation, OOB ownership/editing, generator,
-  four-echelon model, and definition-of-done item.
-- `Readme.md` — domain model (`orderOfBattle`, four echelons), formation
-  rendering, scenario behavior, and milestone list.
+- `M5.6_PLAN.md` — marked implemented, with the consolidated inspector Bulk
+  actions section and cascade-deletion follow-up.
+- `TASKS.md` — M5.6 checklist and gate, including cascade deletion and the
+  consolidated inspector actions.
+- `ARCHITECTURE.md` — battle-line module, layout and command rules, stroke
+  capture, transient editor state, store actions, bulk actions, cascade
+  deletion, and test coverage.
+- `PROJECT_SPEC.md` — scenario feature bullets, milestone summary, later-work
+  wording, and definition-of-done item.
+- `Readme.md` — formation behavior, deletion cascade, and the M5.6 milestone.
+- `M5.5_PLAN.md` — deletion behavior updated to the current cascade rules.
 - `HANDOFF.md` — this file.
 
 ## Known limitations
 
+- The battle line is a transient deployment guide; it is not saved as an
+  annotation or document field (M6).
+- Undo/redo and scenario reset clear the `lastBattleLine` metadata. It remains
+  only as transient selection/debug state; the user-facing Flip 180° works from
+  the current selection.
+- Bulk frontage changes the stored width only; redraw the line to change spacing.
+- Command labels recenter only when the whole brigade group is included or the
+  command was explicitly selected. Unrelated undeployed ancestors stay off the
+  map.
+- Mid-stroke panning/zooming is not supported.
 - Scenarios remain in memory until M7; reloading returns to the seeded demo.
-- The terrain map cannot be replaced after scenario creation.
-- Generated armies are not auto-deployed.
 - The Fast Refresh lint warning is pre-existing style guidance for
   `FactionForm.tsx` exporting `nextFactionColor`; it does not affect behavior.
 
 ## Remaining work
 
-None for M5.5. M6 adds phase management and phase-specific annotations; scenario
+None for M5.6. M6 adds phase management and phase-specific annotations; scenario
 persistence and export remain in M7.
